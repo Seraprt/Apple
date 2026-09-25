@@ -14,9 +14,7 @@ const app = express();
 // ───── CORS ─────
 const allowedOrigins = [
   process.env.FRONTEND_URL,
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'http://localhost:8100',   // Capacitor
+  ' https://sahmee.onrender.com',   // Capacitor
   'capacitor://localhost',
   'https://localhost',
 ].filter(Boolean);
