@@ -1,6 +1,6 @@
 const express = require('express');
 const { runIngestion } = require('../services/ingestion');
-const Team = require('../models/Team');
+const Team = require('../models/Teams');
 const Match = require('../models/Match');
 const MatchAnalysis = require('../models/MatchAnalysis');
 const { warmAnalysisCache } = require('../services/warmCache');
