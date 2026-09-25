@@ -1,5 +1,5 @@
 const axios = require('axios');
-const Team = require('../models/Team');
+const Team = require('../models/Teams');
 const Match = require('../models/Match');
 
 const FOOTBALL_API = 'https://api.football-data.org/v4';
