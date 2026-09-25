@@ -1,6 +1,6 @@
 const express = require('express');
 const Match = require('../models/Match');
-const Team = require('../models/Team');
+const Team = require('../models/Teams');
 const MatchAnalysis = require('../models/MatchAnalysis');
 
 const router = express.Router();

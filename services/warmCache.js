@@ -1,5 +1,5 @@
 const Match = require('../models/Match');
-const Team = require('../models/Team');
+const Team = require('../models/Teams');
 const MatchAnalysis = require('../models/MatchAnalysis');
 const {
   computeXg,
