@@ -63,7 +63,7 @@ function poissonCdf(k, lambda) {
 }
 
 // ══════════════════════════════════════════════
-// xG with league tier awareness
+// xG with league tier awareness — cap 4.5
 // ══════════════════════════════════════════════
 function computeXg(homeTeam, awayTeam, weatherMult = 1.0) {
   const homeAttack = homeTeam.attack_rating ?? 1.0;
@@ -86,8 +86,8 @@ function computeXg(homeTeam, awayTeam, weatherMult = 1.0) {
   awayXg *= weatherMult;
 
   return {
-    homeXg: clamp(homeXg, 0.3, 3.5),
-    awayXg: clamp(awayXg, 0.3, 3.5),
+    homeXg: clamp(homeXg, 0.3, 4.5),
+    awayXg: clamp(awayXg, 0.3, 4.5),
   };
 }
 
@@ -183,7 +183,7 @@ function computeAllMarketProbs(homeXg, awayXg) {
   probs.btts_yes = hs * as;
   probs.btts_no = 1 - probs.btts_yes;
 
-  // ✅ FIXED — bracket notation because key contains a dot
+  // ✅ Bracket notation — keys contain dots
   const pHomeLess3 = poissonCdf(2, homeXg);
   const pAwayLess3 = poissonCdf(2, awayXg);
   probs['any_team_over_2.5_goals'] = 1 - pHomeLess3 * pAwayLess3;
@@ -220,8 +220,8 @@ function computeAllMarketProbs(homeXg, awayXg) {
 // ══════════════════════════════════════════════
 function mostLikelyScore(homeXg, awayXg) {
   let best = '0-0', bestP = 0;
-  for (let h = 0; h <= 6; h++) {
-    for (let a = 0; a <= 6; a++) {
+  for (let h = 0; h <= 7; h++) {
+    for (let a = 0; a <= 7; a++) {
       const p = poissonPmf(h, homeXg) * poissonPmf(a, awayXg);
       if (p > bestP) { bestP = p; best = `${h}-${a}`; }
     }
@@ -438,7 +438,7 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
 }
 
 // ══════════════════════════════════════════════
-// Analyze a match
+// Analyze a match — blend Poisson with factor signal
 // ══════════════════════════════════════════════
 async function analyzeMatch(match, homeTeam, awayTeam) {
   const context = getMatchContext(match);
@@ -455,11 +455,11 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
     match.date
   );
 
-  // ── Factor signal (used for confidence + small adjustment) ──
+  // Factor signal (for confidence + small adjustment)
   const { scoreDiff } = computeProbabilities(homeFactors, awayFactors, weatherMult);
   const confidence = computeConfidence(homeFactors, awayFactors, scoreDiff);
 
-  // ── Poisson xG + probabilities (these have a REAL draw) ──
+  // Poisson xG + probabilities (these have a REAL draw)
   const { homeXg, awayXg } = computeXg(homeTeam, awayTeam, weatherMult);
   const probs = computeAllMarketProbs(homeXg, awayXg);
 
@@ -467,8 +467,7 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
   const poissonDraw = probs.draw;
   const poissonAway = probs.away_win;
 
-  // ── Blend Poisson with factor signal ──
-  // signal ranges -1 → +1. Max adjustment is 10% shift in each direction.
+  // Blend: signal ranges -1 → +1. Max shift = 10% per side.
   const signal = Math.tanh(scoreDiff * 1.5);
   const shift = signal * 0.10;
 
@@ -476,13 +475,11 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
   let awayWin = poissonAway + Math.max(0, -shift);
   let draw = poissonDraw - Math.abs(shift);
 
-  // Renormalize to sum = 1
   const sum = homeWin + draw + awayWin;
   homeWin /= sum;
   draw /= sum;
   awayWin /= sum;
 
-  // ── Best market (uses full probs from Poisson) ──
   const { bestMarket, bestProb, bestScore } = pickBestMarket(
     probs,
     confidence,
@@ -544,6 +541,7 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
     away_factors: awayFactors,
   };
 }
+
 // ══════════════════════════════════════════════
 // Market labels
 // ══════════════════════════════════════════════
