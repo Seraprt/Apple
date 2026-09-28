@@ -1,5 +1,5 @@
 const Match = require('../models/Match');
-const Team = require('../models/Teams');
+const Team = require('../models/Team');
 const MatchAnalysis = require('../models/MatchAnalysis');
 const { analyzeMatch } = require('./predictionEngine');
 
@@ -47,18 +47,29 @@ async function warmAnalysisCache(daysAhead = 14) {
             away_team: away.name,
             date: m.date,
             tournament: m.tournament,
-            best_market: result.best_market.market,
-            probability: result.best_market.probability,
-            confidence: result.confidence,
-            score: result.best_market.score,
-            correct_score: result.predicted_correct_score,
-            reason_short: result.reason_short,
-            reasons: result.reasons,
-            markets: result.markets,
-            pick: result.pick,
+
+            // Core
             home_win_prob: result.home_win_prob,
             draw_prob: result.draw_prob,
             away_win_prob: result.away_win_prob,
+            confidence: result.confidence,
+
+            // Market + score
+            best_market: result.best_market?.market || null,
+            best_market_label: result.best_market?.label || null,
+            probability: result.best_market?.probability || null,
+            score: result.best_market?.score || null,
+            correct_score: result.predicted_correct_score,
+
+            // Picks
+            pick: result.pick,
+            secondary_pick: result.secondary_pick || null,
+
+            // Reasons + UI data
+            reason_short: result.reason_short,
+            reasons: result.reasons,
+            markets: result.markets,
+
             updated_at: new Date(),
           },
         },

@@ -56,7 +56,42 @@ const LEAGUE_TIERS = {
   // ── Fallback ──
   default: 0.80,
 };
+// ══════════════════════════════════════════════
+// Match context analysis (derby/final/knockout)
+// ══════════════════════════════════════════════
+function getMatchContext(match) {
+  const context = {
+    is_derby: false,
+    is_knockout: false,
+    is_final: false,
+    is_group: false,
+    is_world_cup: false,
+    motivation: 1.0,
+  };
+  const tournament = (match.tournament || '').toLowerCase();
+  const stage = (match.stage || '').toLowerCase();
 
+  if (tournament.includes('world cup')) context.is_world_cup = true;
+  if (stage.includes('final')) {
+    context.is_final = true;
+    context.motivation = 1.2;
+  } else if (stage.includes('semi') || stage.includes('quarter')) {
+    context.is_knockout = true;
+    context.motivation = 1.1;
+  } else if (stage.includes('group')) {
+    context.is_group = true;
+  }
+
+  if (
+    tournament.includes('derby') ||
+    tournament.includes('clasico') ||
+    tournament.includes('rival')
+  ) {
+    context.is_derby = true;
+  }
+
+  return context;
+}
 function getTierFactor(league) {
   if (!league) return LEAGUE_TIERS.default;
   const l = league.toLowerCase().trim();
@@ -384,6 +419,7 @@ module.exports = {
   getWeatherMultiplier,
   getFatigueScore,
   getNewsScore,
+  getMatchContext,
   getAttackRating,
   getDefenceRating,
   computeMatchFactors,

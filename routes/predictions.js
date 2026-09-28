@@ -1,5 +1,5 @@
 const express = require('express');
-const Team = require('../models/Teams');
+const Team = require('../models/Team');
 const { compareTeams } = require('../services/predictionEngine');
 
 const router = express.Router();
@@ -18,11 +18,11 @@ router.get('/compare', async (req, res) => {
     ]);
     if (!home || !away) return res.status(404).json({ error: 'Team not found' });
 
-    const result = compareTeams(home, away);
+    const result = await compareTeams(home, away);   // ← AWAIT!
     res.json(result);
   } catch (err) {
     console.error('compare error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message || 'Compare failed' });
   }
 });
 

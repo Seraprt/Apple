@@ -70,26 +70,80 @@ router.get('/search', async (req, res) => {
 });
 
 // GET /api/teams/:id
+// ───── GET /api/teams/:id ─────
 router.get('/:id', async (req, res) => {
   try {
-    const t = await Team.findById(req.params.id);
+    const t = await Team.findById(req.params.id).lean();
     if (!t) return res.status(404).json({ error: 'Team not found' });
 
-    // Recent form (last 5 finished)
-    const recent = await Match.find({
+    // Recent finished matches (last 5)
+    const recentRaw = await Match.find({
       $or: [{ home_team_id: t._id }, { away_team_id: t._id }],
       home_goals: { $ne: null },
       away_goals: { $ne: null },
     })
       .sort({ date: -1 })
-      .limit(5);
+      .limit(5)
+      .lean();
 
-    const form = recent.map((m) => {
+    // Enrich recent matches with opponent info
+    const recent = [];
+    for (const m of recentRaw) {
       const isHome = String(m.home_team_id) === String(t._id);
+      const oppId = isHome ? m.away_team_id : m.home_team_id;
+      const opp = await Team.findById(oppId).select('name short logo color').lean();
       const gf = isHome ? m.home_goals : m.away_goals;
       const ga = isHome ? m.away_goals : m.home_goals;
-      return gf > ga ? 'W' : gf === ga ? 'D' : 'L';
-    });
+
+      recent.push({
+        date: m.date,
+        competition: m.tournament || '',
+        was_home: isHome,
+        opponent: opp
+          ? {
+              id: opp._id,
+              name: opp.name,
+              short: opp.short,
+              logo: opp.logo,
+              color: opp.color,
+            }
+          : null,
+        goals_for: gf,
+        goals_against: ga,
+        result: gf > ga ? 'W' : gf === ga ? 'D' : 'L',
+      });
+    }
+
+    // Next upcoming match
+    const nextRaw = await Match.findOne({
+      $or: [{ home_team_id: t._id }, { away_team_id: t._id }],
+      date: { $gte: new Date() },
+    })
+      .sort({ date: 1 })
+      .lean();
+
+    let nextMatch = null;
+    if (nextRaw) {
+      const isHome = String(nextRaw.home_team_id) === String(t._id);
+      const oppId = isHome ? nextRaw.away_team_id : nextRaw.home_team_id;
+      const opp = await Team.findById(oppId).select('name short logo color').lean();
+      nextMatch = {
+        date: nextRaw.date,
+        competition: nextRaw.tournament || '',
+        was_home: isHome,
+        opponent: opp
+          ? {
+              id: opp._id,
+              name: opp.name,
+              short: opp.short,
+              logo: opp.logo,
+              color: opp.color,
+            }
+          : null,
+      };
+    }
+
+    const form = recent.map((m) => m.result);
 
     res.json({
       id: t._id,
@@ -98,17 +152,19 @@ router.get('/:id', async (req, res) => {
       logo: t.logo,
       league: t.league,
       color: t.color,
-      attack_rating: t.attack_rating,
-      defence_rating: t.defence_rating,
-      attack_text: describeAttack(t.attack_rating),
-      defence_text: describeDefence(t.defence_rating),
-      home_strength: t.home_ppg,
-      away_strength: t.away_ppg,
-      home_text: describeHome(t.home_ppg),
-      away_text: describeAway(t.away_ppg),
-      elo: t.elo_rating,
+      attack_rating: t.attack_rating ?? 1.0,
+      defence_rating: t.defence_rating ?? 1.0,
+      attack_text: describeAttack(t.attack_rating ?? 1.0),
+      defence_text: describeDefence(t.defence_rating ?? 1.0),
+      home_strength: t.home_ppg ?? 1.5,
+      away_strength: t.away_ppg ?? 1.0,
+      home_text: describeHome(t.home_ppg ?? 1.5),
+      away_text: describeAway(t.away_ppg ?? 1.0),
+      elo: t.elo_rating ?? 1500,
       recent_form: form,
-      away_warning: t.away_ppg < 0.30,
+      recent_matches: recent,     // ← NEW
+      next_match: nextMatch,      // ← NEW
+      away_warning: (t.away_ppg ?? 1.0) < 0.30,
     });
   } catch (err) {
     console.error('team details error:', err);

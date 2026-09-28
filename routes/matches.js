@@ -1,6 +1,6 @@
 const express = require('express');
 const Match = require('../models/Match');
-const Team = require('../models/Teams');
+const Team = require('../models/Team');
 const MatchAnalysis = require('../models/MatchAnalysis');
 const CustomMatch = require('../models/CustomMatch');
 
@@ -84,7 +84,9 @@ router.get('/analysis', async (req, res) => {
           confidence: analysis?.confidence || null,
           correct_score: analysis?.correct_score || null,
           best_market: analysis?.best_market || null,
+          best_market_label: analysis?.best_market_label || null,
           pick: analysis?.pick || null,
+          secondary_pick: analysis?.secondary_pick || null,
           reason_short: analysis?.reason_short || null,
           reasons: analysis?.reasons || [],
           markets: analysis?.markets || [],
@@ -92,7 +94,7 @@ router.get('/analysis', async (req, res) => {
       })
       .filter(Boolean);
 
-    // ── Merge in custom matches (admin-entered, not from football API) ──
+    // ── Merge in custom matches ──
     const customQuery = { active: true, date: { $gte: start, $lt: end } };
     if (league && league !== 'All') customQuery.league = league;
 
@@ -124,7 +126,9 @@ router.get('/analysis', async (req, res) => {
         confidence: null,
         correct_score: cm.suggested_score || null,
         best_market: cm.suggested_market,
+        best_market_label: cm.suggested_market,
         pick: cm.suggested_market,
+        secondary_pick: null,
         reason_short: cm.notes || null,
         reasons: [],
         markets: [{ key: 'Suggested', value: cm.suggested_market }],
@@ -133,7 +137,7 @@ router.get('/analysis', async (req, res) => {
       });
     }
 
-    // Re-sort so custom matches slot into chronological order
+    // Chronological order
     results.sort((a, b) => new Date(a.date) - new Date(b.date));
 
     res.json(results);
@@ -150,7 +154,9 @@ router.get('/leagues', async (req, res) => {
       Match.distinct('tournament'),
       CustomMatch.distinct('league'),
     ]);
-    const merged = [...new Set([...apiLeagues, ...customLeagues])].filter(Boolean).sort();
+    const merged = [...new Set([...apiLeagues, ...customLeagues])]
+      .filter(Boolean)
+      .sort();
     res.json(['All', ...merged]);
   } catch (err) {
     res.status(500).json({ error: err.message });
