@@ -14,9 +14,10 @@ const app = express();
 // ───── CORS ─────
 const allowedOrigins = [
   process.env.FRONTEND_URL,
-  ' https://sahmee.onrender.com',   // Capacitor
+  ' https://sahmee.onrender.com', 
+    // Capacitor
   'capacitor://localhost',
-  'https://localhost',
+  'https://apple-1fr6.onrender.com/',
 ].filter(Boolean);
 
 app.use(cors({
