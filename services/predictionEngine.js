@@ -1,10 +1,13 @@
 // ══════════════════════════════════════════════
 // services/predictionEngine.js
-// Exact port of predict(), compute_match_factors(),
-// generate_detailed_reason() from Python engine
+// Port of the Python engine's predict() + league tier awareness
 // ══════════════════════════════════════════════
 
-const { computeMatchFactors, getWeatherMultiplier } = require('./factors');
+const {
+  computeMatchFactors,
+  getWeatherMultiplier,
+  getTierFactor,
+} = require('./factors');
 
 // ───── Same weights as Python ─────
 const WEIGHTS = {
@@ -15,7 +18,7 @@ const WEIGHTS = {
   coach: 0.05,
   home_away: 0.10,
   h2h: 0.05,
-  weather: 0.05,   // handled separately
+  weather: 0.05,
   fatigue: 0.10,
   news: 0.10,
 };
@@ -41,7 +44,7 @@ function poissonCdf(k, lambda) {
 }
 
 // ══════════════════════════════════════════════
-// xG from attack/defence ratings (same as Python)
+// xG from attack/defence ratings + league tier adjustment
 // ══════════════════════════════════════════════
 function computeXg(homeTeam, awayTeam, weatherMult = 1.0) {
   const homeAttack = homeTeam.attack_rating ?? 1.0;
@@ -51,6 +54,17 @@ function computeXg(homeTeam, awayTeam, weatherMult = 1.0) {
 
   let homeXg = LEAGUE_AVG_HOME * homeAttack * awayDefence;
   let awayXg = LEAGUE_AVG_AWAY * awayAttack * homeDefence;
+
+  // ── Cross-league tier adjustment ──
+  const homeTier = getTierFactor(homeTeam.league);
+  const awayTier = getTierFactor(awayTeam.league);
+
+  if (homeTier !== awayTier) {
+    const tierDiff = homeTier - awayTier; // approx -0.4 to +0.4
+    // Higher-tier team gets xG boost, lower-tier team gets dampened
+    homeXg *= 1 + tierDiff * 0.5;
+    awayXg *= 1 - tierDiff * 0.5;
+  }
 
   homeXg *= weatherMult;
   awayXg *= weatherMult;
@@ -119,7 +133,9 @@ function computeConfidence(homeFactors, awayFactors, scoreDiff) {
 function computeAllMarketProbs(homeXg, awayXg) {
   const probs = {};
 
-  let homeWin = 0, draw = 0, awayWin = 0;
+  let homeWin = 0,
+    draw = 0,
+    awayWin = 0;
   for (let h = 0; h <= 10; h++) {
     for (let a = 0; a <= 10; a++) {
       const p = poissonPmf(h, homeXg) * poissonPmf(a, awayXg);
@@ -129,7 +145,9 @@ function computeAllMarketProbs(homeXg, awayXg) {
     }
   }
   const sum = homeWin + draw + awayWin;
-  homeWin /= sum; draw /= sum; awayWin /= sum;
+  homeWin /= sum;
+  draw /= sum;
+  awayWin /= sum;
 
   probs.home_win = homeWin;
   probs.draw = draw;
@@ -186,11 +204,15 @@ function computeAllMarketProbs(homeXg, awayXg) {
 // Most likely score
 // ══════════════════════════════════════════════
 function mostLikelyScore(homeXg, awayXg) {
-  let best = '0-0', bestP = 0;
+  let best = '0-0',
+    bestP = 0;
   for (let h = 0; h <= 6; h++) {
     for (let a = 0; a <= 6; a++) {
       const p = poissonPmf(h, homeXg) * poissonPmf(a, awayXg);
-      if (p > bestP) { bestP = p; best = `${h}-${a}`; }
+      if (p > bestP) {
+        bestP = p;
+        best = `${h}-${a}`;
+      }
     }
   }
   return best;
@@ -201,10 +223,17 @@ function mostLikelyScore(homeXg, awayXg) {
 // ══════════════════════════════════════════════
 function pickBestMarket(probs, confidence) {
   const excluded = [
-    'under_0.5', 'over_5.5', 'under_5.5',
-    'over_6.5', 'under_6.5', 'over_7.5', 'under_7.5',
+    'under_0.5',
+    'over_5.5',
+    'under_5.5',
+    'over_6.5',
+    'under_6.5',
+    'over_7.5',
+    'under_7.5',
   ];
-  let bestMarket = null, bestScore = 0, bestProb = 0;
+  let bestMarket = null,
+    bestScore = 0,
+    bestProb = 0;
   for (const [market, prob] of Object.entries(probs)) {
     if (excluded.includes(market)) continue;
     const score = prob * confidence;
@@ -225,7 +254,34 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs) {
   const homeShort = homeTeam.short || homeTeam.name.slice(0, 3).toUpperCase();
   const awayShort = awayTeam.short || awayTeam.name.slice(0, 3).toUpperCase();
 
-  // Attack vs defence — plain read of ratings
+  // ── League tier gap (cross-league awareness) ──
+  const homeTier = getTierFactor(homeTeam.league);
+  const awayTier = getTierFactor(awayTeam.league);
+  const tierDiff = homeTier - awayTier;
+
+  if (Math.abs(tierDiff) >= 0.10) {
+    const higher = tierDiff > 0 ? homeTeam : awayTeam;
+    const lower = tierDiff > 0 ? awayTeam : homeTeam;
+    const higherTier = tierDiff > 0 ? homeTier : awayTier;
+    const lowerTier = tierDiff > 0 ? awayTier : homeTier;
+    const gap = Math.abs(tierDiff);
+
+    reasons.push({
+      tone: tierDiff > 0 ? 'good' : 'warn',
+      weight: clamp(gap * 2.0, 0.4, 0.95),
+      tag: 'League quality',
+      title: `${higher.name} play at a higher level`,
+      text: `${higher.name} come from ${
+        higher.league || 'a stronger league'
+      } (tier ${higherTier.toFixed(2)}), while ${
+        lower.name
+      } play in ${
+        lower.league || 'a lower-tier league'
+      } (tier ${lowerTier.toFixed(2)}). This quality gap carries significant weight in our model.`,
+    });
+  }
+
+  // ── Attack vs defence ──
   const homeAttack = homeTeam.attack_rating ?? 1.0;
   const homeDefence = homeTeam.defence_rating ?? 1.0;
   const awayAttack = awayTeam.attack_rating ?? 1.0;
@@ -240,7 +296,11 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs) {
       weight: clamp(hEdge * 1.7, 0.3, 0.95),
       tag: 'Attack vs defence',
       title: `${homeTeam.name} attack outmatches the ${awayTeam.name} defence`,
-      text: `${homeShort} carry a ${Math.round(homeAttack * 100)} attack rating into a back line rated ${Math.round(awayDefence * 100)}. That gap is worth ~${(hEdge * 1.9).toFixed(2)} expected goals.`,
+      text: `${homeShort} carry a ${Math.round(
+        homeAttack * 100
+      )} attack rating into a back line rated ${Math.round(
+        awayDefence * 100
+      )}. That gap is worth ~${(hEdge * 1.9).toFixed(2)} expected goals.`,
     });
   }
   if (aEdge > 0.05) {
@@ -249,18 +309,26 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs) {
       weight: clamp(aEdge * 1.7, 0.3, 0.95),
       tag: 'Counter threat',
       title: `${awayTeam.name} can hurt ${homeTeam.name} going forward`,
-      text: `${awayShort} rate ${Math.round(awayAttack * 100)} in attack against a ${homeShort} defence at ${Math.round(homeDefence * 100)}. Expect them to create at least a couple of chances.`,
+      text: `${awayShort} rate ${Math.round(
+        awayAttack * 100
+      )} in attack against a ${homeShort} defence at ${Math.round(
+        homeDefence * 100
+      )}. Expect them to create at least a couple of chances.`,
     });
   }
 
-  // Form
+  // ── Form ──
   if (homeFactors.form > awayFactors.form + 0.15) {
     reasons.push({
       tone: 'good',
       weight: clamp(homeFactors.form - awayFactors.form + 0.3, 0.3, 0.9),
       tag: 'Recent form',
       title: `${homeTeam.name} arrive in better form`,
-      text: `${homeShort} form rating ${Math.round(homeFactors.form * 100)} vs ${awayShort} ${Math.round(awayFactors.form * 100)} over the last 5 games.`,
+      text: `${homeShort} form rating ${Math.round(
+        homeFactors.form * 100
+      )} vs ${awayShort} ${Math.round(
+        awayFactors.form * 100
+      )} over the last 5 games.`,
     });
   } else if (awayFactors.form > homeFactors.form + 0.15) {
     reasons.push({
@@ -268,18 +336,24 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs) {
       weight: clamp(awayFactors.form - homeFactors.form + 0.3, 0.3, 0.9),
       tag: 'Recent form',
       title: `${awayTeam.name} arrive in better form`,
-      text: `${awayShort} form rating ${Math.round(awayFactors.form * 100)} vs ${homeShort} ${Math.round(homeFactors.form * 100)} over the last 5 games.`,
+      text: `${awayShort} form rating ${Math.round(
+        awayFactors.form * 100
+      )} vs ${homeShort} ${Math.round(
+        homeFactors.form * 100
+      )} over the last 5 games.`,
     });
   }
 
-  // Home advantage
+  // ── Home advantage ──
   if (homeFactors.home_away > 0.65) {
     reasons.push({
       tone: 'good',
       weight: 0.78,
       tag: 'Home strength',
       title: `${homeTeam.name} are strong at home`,
-      text: `Home strength ${homeFactors.home_away.toFixed(2)} — they convert chances at a higher rate at home.`,
+      text: `Home strength ${homeFactors.home_away.toFixed(
+        2
+      )} — they convert chances at a higher rate at home.`,
     });
   }
   if (awayFactors.home_away < 0.35) {
@@ -288,11 +362,13 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs) {
       weight: 0.92,
       tag: 'Away form',
       title: `${awayTeam.name} are a poor travelling side`,
-      text: `Away strength ${awayFactors.home_away.toFixed(2)} — below our 0.35 danger line. They drop points on the road.`,
+      text: `Away strength ${awayFactors.home_away.toFixed(
+        2
+      )} — below our 0.35 danger line. They drop points on the road.`,
     });
   }
 
-  // Fatigue
+  // ── Fatigue ──
   if (homeFactors.fatigue < 0.75) {
     reasons.push({
       tone: 'warn',
@@ -312,7 +388,7 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs) {
     });
   }
 
-  // H2H
+  // ── H2H ──
   if (homeFactors.h2h > 0.7) {
     reasons.push({
       tone: 'good',
@@ -331,7 +407,7 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs) {
     });
   }
 
-  return reasons.sort((a, b) => b.weight - a.weight).slice(0, 4);
+  return reasons.sort((a, b) => b.weight - a.weight).slice(0, 5);
 }
 
 // ══════════════════════════════════════════════
@@ -344,7 +420,6 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
     awayTeam
   );
 
-  // Weather multiplier (placeholder 1.0 in Node)
   const weatherMult = await getWeatherMultiplier(
     homeTeam.latitude,
     homeTeam.longitude,
@@ -399,7 +474,7 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
 }
 
 // ══════════════════════════════════════════════
-// Compare two teams (used by routes/predictions.js)
+// Compare two teams
 // ══════════════════════════════════════════════
 async function compareTeams(home, away) {
   const fakeMatch = {
@@ -418,6 +493,7 @@ async function compareTeams(home, away) {
       short: home.short,
       logo: home.logo,
       color: home.color,
+      league: home.league,
       attack_rating: home.attack_rating ?? 1.0,
       defence_rating: home.defence_rating ?? 1.0,
       home_ppg: home.home_ppg ?? 1.5,
@@ -429,6 +505,7 @@ async function compareTeams(home, away) {
       short: away.short,
       logo: away.logo,
       color: away.color,
+      league: away.league,
       attack_rating: away.attack_rating ?? 1.0,
       defence_rating: away.defence_rating ?? 1.0,
       home_ppg: away.home_ppg ?? 1.5,

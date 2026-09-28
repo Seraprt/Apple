@@ -1,12 +1,67 @@
 // ══════════════════════════════════════════════
 // services/factors.js
-// Exact port of app/factors.py from the Python engine
+// Exact port of app/factors.py + league tier awareness
 // ══════════════════════════════════════════════
 
 const Match = require('../models/Match');
 const Team = require('../models/Team');
-const Player = require('../models/Player');  // optional; returns null if missing
-const axios = require('axios');
+const Player = require('../models/Player');
+
+// ══════════════════════════════════════════════
+// LEAGUE TIERS
+// Multiplier representing the quality of a league.
+// Top-5 European = 1.00, Second tier = ~0.65-0.85,
+// Non-European top flights = 0.70-0.80.
+// ══════════════════════════════════════════════
+const LEAGUE_TIERS = {
+  // ── Top 5 European ──
+  'premier league': 1.00,
+  'la liga': 0.98,
+  'serie a': 0.97,
+  'bundesliga': 0.98,
+  'ligue 1': 0.95,
+  'champions league': 1.02,
+  'uefa champions league': 1.02,
+  'europa league': 0.98,
+  'uefa europa league': 0.98,
+
+  // ── Second tier European ──
+  'eredivisie': 0.85,
+  'primeira liga': 0.88,
+  'belgian pro league': 0.82,
+  'championship': 0.72,
+  'segunda division': 0.68,
+  'serie b': 0.65,
+  '2. bundesliga': 0.65,
+  'ligue 2': 0.62,
+  'scottish premiership': 0.70,
+  'russian premier league': 0.78,
+  'turkish super lig': 0.78,
+  'super lig': 0.78,
+  'swiss super league': 0.74,
+  'austrian bundesliga': 0.72,
+  'ukrainian premier league': 0.72,
+
+  // ── Non-European top flights ──
+  'brasileirao': 0.80,
+  'campeonato brasileiro': 0.80,
+  'argentine primera division': 0.78,
+  'liga mx': 0.76,
+  'mls': 0.70,
+  'major league soccer': 0.70,
+  'saudi pro league': 0.72,
+  'j1 league': 0.74,
+  'k league 1': 0.72,
+
+  // ── Fallback ──
+  default: 0.80,
+};
+
+function getTierFactor(league) {
+  if (!league) return LEAGUE_TIERS.default;
+  const l = league.toLowerCase().trim();
+  return LEAGUE_TIERS[l] ?? LEAGUE_TIERS.default;
+}
 
 // ══════════════════════════════════════════════
 // Helpers
@@ -22,7 +77,7 @@ async function getTeam(teamId) {
 }
 
 // ══════════════════════════════════════════════
-// 1. FORM — last N matches, weighted by recency & opponent strength
+// 1. FORM
 // ══════════════════════════════════════════════
 async function getFormScore(teamId, matchDate, numGames = 5) {
   const matches = await Match.find({
@@ -63,17 +118,22 @@ async function getFormScore(teamId, matchDate, numGames = 5) {
 }
 
 // ══════════════════════════════════════════════
-// 2. STRENGTH — pure ELO (returns 0-100)
+// 2. STRENGTH — ELO × league tier
 // ══════════════════════════════════════════════
 async function getStrengthScore(teamId) {
   const team = await getTeam(teamId);
   if (!team) return 50.0;
+
   const elo = team.elo_rating || 1500;
-  return Math.max(0, Math.min(100, (elo - 1000) / 10));
+  const baseStrength = Math.max(0, Math.min(100, (elo - 1000) / 10));
+
+  // Apply league tier — this is the key change
+  const tier = getTierFactor(team.league);
+  return baseStrength * tier;
 }
 
 // ══════════════════════════════════════════════
-// 3. AVAILABILITY — from players collection (placeholder if missing)
+// 3. AVAILABILITY
 // ══════════════════════════════════════════════
 async function getAvailabilityScore(teamId) {
   try {
@@ -121,7 +181,7 @@ async function getCoachScore(teamId) {
 }
 
 // ══════════════════════════════════════════════
-// 6. HOME / AWAY ADVANTAGE
+// 6. HOME / AWAY
 // ══════════════════════════════════════════════
 async function getHomeAwayScore(teamId, isHome, opponentStrength) {
   const team = await getTeam(teamId);
@@ -177,17 +237,14 @@ async function getH2HScore(homeId, awayId, matchDate) {
 }
 
 // ══════════════════════════════════════════════
-// 8. WEATHER — placeholder (returns 1.0 multiplier)
+// 8. WEATHER — placeholder
 // ══════════════════════════════════════════════
-// Python calls a real weather API. In Node, we return neutral 1.0
-// unless you wire up OpenWeatherMap later.
 async function getWeatherMultiplier(lat, lon, matchTime) {
-  // TODO: add OpenWeatherMap integration later
   return 1.0;
 }
 
 // ══════════════════════════════════════════════
-// 9. FATIGUE — rest days + travel
+// 9. FATIGUE
 // ══════════════════════════════════════════════
 async function getFatigueScore(teamId, matchDate) {
   const lastMatch = await Match.findOne({
@@ -208,23 +265,18 @@ async function getFatigueScore(teamId, matchDate) {
   else if (restDays >= 2) restFactor = 0.85;
   else restFactor = 0.7;
 
-  // Travel penalty — skip if we don't have coordinates
-  // (Python uses haversine between venues; we'll approximate as 0)
-  const travelPenalty = 0.0;
-
-  return Math.max(0.5, Math.min(1.0, restFactor - travelPenalty));
+  return Math.max(0.5, Math.min(1.0, restFactor));
 }
 
 // ══════════════════════════════════════════════
-// 10. NEWS — placeholder (returns 0.5 neutral)
+// 10. NEWS — placeholder
 // ══════════════════════════════════════════════
 async function getNewsScore(teamId) {
-  // TODO: integrate news sentiment API later
   return 0.5;
 }
 
 // ══════════════════════════════════════════════
-// 11. ATTACK / DEFENCE RATINGS (already stored on team)
+// 11. ATTACK / DEFENCE
 // ══════════════════════════════════════════════
 async function getAttackRating(teamId) {
   const team = await getTeam(teamId);
@@ -236,7 +288,7 @@ async function getDefenceRating(teamId) {
 }
 
 // ══════════════════════════════════════════════
-// MAIN — compute all 10 factors for a match
+// MAIN — compute all factors for a match
 // ══════════════════════════════════════════════
 async function computeMatchFactors(match, homeTeam, awayTeam) {
   const matchDate = new Date(match.date);
@@ -307,10 +359,21 @@ async function computeMatchFactors(match, homeTeam, awayTeam) {
     news: awayNews,
   };
 
-  return { homeFactors, awayFactors };
+  // Include tier info for the engine to use in reasons & xG
+  const homeTier = getTierFactor(homeTeam.league);
+  const awayTier = getTierFactor(awayTeam.league);
+
+  return {
+    homeFactors,
+    awayFactors,
+    homeTier,
+    awayTier,
+  };
 }
 
 module.exports = {
+  LEAGUE_TIERS,
+  getTierFactor,
   getFormScore,
   getStrengthScore,
   getAvailabilityScore,

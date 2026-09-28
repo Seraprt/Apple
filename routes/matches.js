@@ -1,11 +1,12 @@
 const express = require('express');
 const Match = require('../models/Match');
-const Team = require('../models/Teams');
+const Team = require('../models/Team');
 const MatchAnalysis = require('../models/MatchAnalysis');
+const CustomMatch = require('../models/CustomMatch');
 
 const router = express.Router();
 
-// GET /api/matches/analysis?days=7&league=&date=
+// ───── GET /api/matches/analysis?days=7&league=&date= ─────
 router.get('/analysis', async (req, res) => {
   try {
     const days = Math.min(parseInt(req.query.days) || 7, 30);
@@ -28,46 +29,113 @@ router.get('/analysis', async (req, res) => {
     const query = { date: { $gte: start, $lt: end } };
     if (league && league !== 'All') query.tournament = league;
 
-    const matches = await Match.find(query).sort({ date: 1 }).limit(200);
+    const matches = await Match.find(query).sort({ date: 1 }).limit(200).lean();
 
-    const results = [];
-    for (const m of matches) {
-      const home = await Team.findById(m.home_team_id).select('name short logo color');
-      const away = await Team.findById(m.away_team_id).select('name short logo color');
-      if (!home || !away) continue;
+    // Preload teams
+    const teamIds = new Set();
+    matches.forEach((m) => {
+      teamIds.add(String(m.home_team_id));
+      teamIds.add(String(m.away_team_id));
+    });
+    const teams = await Team.find({ _id: { $in: [...teamIds] } }).lean();
+    const teamMap = {};
+    teams.forEach((t) => {
+      teamMap[String(t._id)] = t;
+    });
 
-      // Try to get cached analysis first
-      let analysis = await MatchAnalysis.findOne({ match_id: String(m._id) });
+    // Preload cached analyses
+    const matchIds = matches.map((m) => String(m._id));
+    const analyses = await MatchAnalysis.find({ match_id: { $in: matchIds } }).lean();
+    const analysisMap = {};
+    analyses.forEach((a) => {
+      analysisMap[a.match_id] = a;
+    });
 
+    const results = matches
+      .map((m) => {
+        const home = teamMap[String(m.home_team_id)];
+        const away = teamMap[String(m.away_team_id)];
+        if (!home || !away) return null;
+
+        const analysis = analysisMap[String(m._id)];
+
+        return {
+          match_id: m._id,
+          is_custom: false,
+          date: m.date,
+          tournament: m.tournament,
+          home: {
+            id: home._id,
+            name: home.name,
+            short: home.short,
+            logo: home.logo,
+            color: home.color,
+          },
+          away: {
+            id: away._id,
+            name: away.name,
+            short: away.short,
+            logo: away.logo,
+            color: away.color,
+          },
+          home_win_prob: analysis?.home_win_prob || null,
+          draw_prob: analysis?.draw_prob || null,
+          away_win_prob: analysis?.away_win_prob || null,
+          confidence: analysis?.confidence || null,
+          correct_score: analysis?.correct_score || null,
+          best_market: analysis?.best_market || null,
+          pick: analysis?.pick || null,
+          reason_short: analysis?.reason_short || null,
+          reasons: analysis?.reasons || [],
+          markets: analysis?.markets || [],
+        };
+      })
+      .filter(Boolean);
+
+    // ── Merge in custom matches (admin-entered, not from football API) ──
+    const customQuery = { active: true, date: { $gte: start, $lt: end } };
+    if (league && league !== 'All') customQuery.league = league;
+
+    const customMatches = await CustomMatch.find(customQuery).lean();
+
+    for (const cm of customMatches) {
       results.push({
-  match_id: m._id,
-  date: m.date,
-  tournament: m.tournament,
-  home: {
-    id: home._id,
-    name: home.name,
-    short: home.short,
-    logo: home.logo,
-    color: home.color,
-  },
-  away: {
-    id: away._id,
-    name: away.name,
-    short: away.short,
-    logo: away.logo,
-    color: away.color,
-  },
-  home_win_prob: analysis?.home_win_prob || null,
-  draw_prob: analysis?.draw_prob || null,
-  away_win_prob: analysis?.away_win_prob || null,
-  confidence: analysis?.confidence || null,
-  correct_score: analysis?.correct_score || null,
-  best_market: analysis?.best_market || null,
-  pick: analysis?.pick || null,
-  reason_short: analysis?.reason_short || null,
-  reasons: analysis?.reasons || [],
-  markets: analysis?.markets || [],
-});
+        match_id: `custom-${cm._id}`,
+        is_custom: true,
+        date: cm.date,
+        tournament: cm.league,
+        home: {
+          id: null,
+          name: cm.home_team_name,
+          short: cm.home_team_name.slice(0, 3).toUpperCase(),
+          logo: '',
+          color: '#5A6474',
+        },
+        away: {
+          id: null,
+          name: cm.away_team_name,
+          short: cm.away_team_name.slice(0, 3).toUpperCase(),
+          logo: '',
+          color: '#5A6474',
+        },
+        home_win_prob: null,
+        draw_prob: null,
+        away_win_prob: null,
+        confidence: null,
+        correct_score: cm.suggested_score || null,
+        best_market: cm.suggested_market,
+        pick: cm.suggested_market,
+        reason_short: cm.notes || null,
+        reasons: [],
+        markets: [{ key: 'Suggested', value: cm.suggested_market }],
+        custom_notice:
+          'This league is not covered by our main data feed — prediction is a manual market suggestion.',
+      });
+    }
+
+    // Re-sort so custom matches slot into chronological order
+    results.sort((a, b) => new Date(a.date) - new Date(b.date));
+
     res.json(results);
   } catch (err) {
     console.error('analysis error:', err);
@@ -75,11 +143,15 @@ router.get('/analysis', async (req, res) => {
   }
 });
 
-// GET /api/matches/leagues – unique tournaments in DB
+// ───── GET /api/matches/leagues ─────
 router.get('/leagues', async (req, res) => {
   try {
-    const leagues = await Match.distinct('tournament');
-    res.json(['All', ...leagues.filter(Boolean).sort()]);
+    const [apiLeagues, customLeagues] = await Promise.all([
+      Match.distinct('tournament'),
+      CustomMatch.distinct('league'),
+    ]);
+    const merged = [...new Set([...apiLeagues, ...customLeagues])].filter(Boolean).sort();
+    res.json(['All', ...merged]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

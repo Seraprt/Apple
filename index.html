@@ -9,20 +9,23 @@
     body {
       background: #0B0E13; color: #E9EEF6;
       font-family: system-ui, -apple-system, sans-serif;
-      margin: 0; padding: 24px; max-width: 640px; margin: 0 auto;
+      margin: 0; padding: 24px;
+      max-width: 640px; margin: 0 auto;
     }
-    h1 { font-size: 22px; letter-spacing: -0.03em; }
+    h1 { font-size: 22px; letter-spacing: -0.03em; margin-bottom: 4px; }
     h1 em { color: #C8F751; font-style: normal; }
+    .sub { color: #5A6474; font-size: 12px; margin-bottom: 20px; }
     .card {
       background: #11151C; border: 1px solid #232B37;
       border-radius: 12px; padding: 16px; margin-top: 16px;
     }
-    .card h3 { margin: 0 0 12px; font-size: 14px; letter-spacing: -0.01em; }
-    input, button {
+    .card h3 { margin: 0 0 12px; font-size: 14px; letter-spacing: -0.01em; color: #8792A3; }
+    input, textarea, button {
       font: inherit; padding: 12px 14px; border-radius: 10px;
       border: 1px solid #232B37; background: #161B24; color: #E9EEF6;
       width: 100%; margin-bottom: 8px;
     }
+    textarea { resize: vertical; min-height: 60px; }
     button {
       background: #C8F751; color: #0B0E13; font-weight: 700;
       border: 0; cursor: pointer; transition: 0.15s;
@@ -30,19 +33,38 @@
     button:active { transform: scale(0.985); }
     button.danger { background: #FF6161; color: white; }
     button:disabled { background: #232B37; color: #5A6474; cursor: not-allowed; }
-    .row { display: flex; gap: 8px; }
+    button.small { width: auto; padding: 6px 10px; font-size: 11px; margin-bottom: 0; }
     .stat { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
-    .stat strong { color: #C8F751; }
+    .stat strong { color: #C8F751; font-weight: 700; }
     .log {
       background: #0B0E13; border: 1px solid #1A2029; border-radius: 8px;
-      padding: 12px; font-family: ui-monospace, monospace;
-      font-size: 12px; color: #8792A3; max-height: 200px;
+      padding: 12px; font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 12px; color: #8792A3; max-height: 220px;
       overflow-y: auto; white-space: pre-wrap;
     }
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 6px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .badge.idle { background: rgba(62,213,152,.14); color: #3ED598; }
+    .badge.running { background: rgba(255,176,32,.14); color: #FFB020; }
+    .row { display: flex; gap: 8px; }
+    .row > * { flex: 1; }
+    .custom-item {
+      padding: 10px 0;
+      border-bottom: 1px solid #232B37;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+    .custom-item:last-child { border-bottom: 0; }
   </style>
 </head>
 <body>
   <h1>FORM<em>LINE</em> Admin</h1>
+  <p class="sub">Ingestion · Warm cache · Custom matches · Status</p>
 
   <div class="card">
     <h3>Admin Key</h3>
@@ -51,8 +73,8 @@
 
   <div class="card">
     <h3>Status</h3>
-    <div class="stat"><span>Ingestion</span><strong id="statIngest">—</strong></div>
-    <div class="stat"><span>Warm cache</span><strong id="statWarm">—</strong></div>
+    <div class="stat"><span>Ingestion</span><span id="statIngest" class="badge idle">—</span></div>
+    <div class="stat"><span>Warm cache</span><span id="statWarm" class="badge idle">—</span></div>
     <div class="stat"><span>Teams</span><strong id="statTeams">—</strong></div>
     <div class="stat"><span>Matches</span><strong id="statMatches">—</strong></div>
     <div class="stat"><span>Analyses cached</span><strong id="statAnalyses">—</strong></div>
@@ -67,12 +89,32 @@
   </div>
 
   <div class="card">
+    <h3>➕ Add Custom Match</h3>
+    <input id="cmHome" placeholder="Home team name" />
+    <input id="cmAway" placeholder="Away team name" />
+    <input id="cmLeague" placeholder="League (e.g. Nigerian Premier League)" />
+    <input id="cmCountry" placeholder="Country (optional)" />
+    <input id="cmDate" type="datetime-local" />
+    <input id="cmMarket" placeholder="Suggested market (e.g. Home win, Over 2.5)" />
+    <input id="cmScore" placeholder="Suggested score (optional, e.g. 2-1)" />
+    <textarea id="cmNotes" placeholder="Short note (optional)"></textarea>
+    <button id="btnAddCustom">Create Custom Match</button>
+  </div>
+
+  <div class="card">
+    <h3>📋 Custom Matches</h3>
+    <div id="customList" style="font-size: 12px; color: #5A6474;">Loading…</div>
+  </div>
+
+  <div class="card">
     <h3>Log</h3>
-    <div class="log" id="log">Ready.</div>
+    <div class="log" id="log">Ready. Paste your admin key and click Refresh.</div>
   </div>
 
   <script>
+    // ⚠️ Paste your backend URL here
     const API = 'https://apple-6r7q.onrender.com/api/admin';
+
     const logEl = document.getElementById('log');
 
     function log(msg) {
@@ -84,32 +126,55 @@
       return document.getElementById('adminKey').value.trim();
     }
 
-    async function call(path, method = 'GET') {
-      const res = await fetch(API + path, {
-        method,
-        headers: { 'X-Admin-Key': getKey() },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || data.message || res.statusText);
+    async function call(path, method = 'GET', body) {
+      const key = getKey();
+      if (!key) throw new Error('Enter admin key first');
+
+      const url = API + path;
+      const headers = { 'X-Admin-Key': key };
+      if (body) headers['Content-Type'] = 'application/json';
+
+      let res;
+      try {
+        res = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+      } catch (netErr) {
+        throw new Error(`Network/CORS error: ${netErr.message}`);
+      }
+
+      let data = {};
+      try { data = await res.json(); } catch (_) {}
+
+      if (!res.ok) {
+        throw new Error(data.error || data.message || `HTTP ${res.status}`);
+      }
       return data;
     }
 
+    // ── Status ──
     async function refresh() {
       try {
         const s = await call('/status');
-        document.getElementById('statIngest').textContent = s.ingestion;
-        document.getElementById('statWarm').textContent = s.warmCache;
+        const ingestEl = document.getElementById('statIngest');
+        const warmEl = document.getElementById('statWarm');
+        ingestEl.textContent = s.ingestion;
+        ingestEl.className = 'badge ' + (s.ingestion === 'running' ? 'running' : 'idle');
+        warmEl.textContent = s.warmCache;
+        warmEl.className = 'badge ' + (s.warmCache === 'running' ? 'running' : 'idle');
         document.getElementById('statTeams').textContent = s.teams;
         document.getElementById('statMatches').textContent = s.matches;
         document.getElementById('statAnalyses').textContent = s.analyses;
       } catch (e) {
-        log('❌ ' + e.message);
+        // silent
       }
     }
 
     document.getElementById('btnIngest').onclick = async () => {
       try {
-        log('▶️ Starting ingestion...');
+        log('▶️ Starting ingestion…');
         const r = await call('/ingest', 'POST');
         log('✅ ' + r.message);
         setTimeout(refresh, 2000);
@@ -118,7 +183,7 @@
 
     document.getElementById('btnWarm').onclick = async () => {
       try {
-        log('▶️ Warming cache...');
+        log('▶️ Warming cache…');
         const r = await call('/warm-cache', 'POST');
         log('✅ ' + r.message);
         setTimeout(refresh, 2000);
@@ -134,11 +199,87 @@
       } catch (e) { log('❌ ' + e.message); }
     };
 
-    document.getElementById('btnRefresh').onclick = refresh;
+    document.getElementById('btnRefresh').onclick = () => {
+      log('🔄 Refreshing status…');
+      refresh();
+      loadCustomMatches();
+    };
 
-    // Auto-refresh every 10s
+    // ── Custom Matches ──
+    async function loadCustomMatches() {
+      const list = document.getElementById('customList');
+      try {
+        const data = await call('/custom-matches');
+        if (!data.length) {
+          list.innerHTML = 'No custom matches yet.';
+          return;
+        }
+        list.innerHTML = data.map(m => `
+          <div class="custom-item">
+            <div>
+              <div style="color:#E9EEF6;font-weight:600">${m.home_team_name} vs ${m.away_team_name}</div>
+              <div style="font-size:11px;color:#5A6474;margin-top:2px">${m.league} · ${new Date(m.date).toLocaleString()}</div>
+              <div style="font-size:11px;color:#C8F751;margin-top:2px">${m.suggested_market}${m.suggested_score ? ' · ' + m.suggested_score : ''}</div>
+            </div>
+            <button class="danger small" onclick="deleteCustomMatch('${m._id}')">Delete</button>
+          </div>
+        `).join('');
+      } catch (e) {
+        list.innerHTML = 'Enter admin key to load.';
+      }
+    }
+
+    window.deleteCustomMatch = async (id) => {
+      if (!confirm('Delete this custom match?')) return;
+      try {
+        await call(`/custom-matches/${id}`, 'DELETE');
+        log('✅ Custom match deleted');
+        loadCustomMatches();
+      } catch (e) {
+        log('❌ ' + e.message);
+      }
+    };
+
+    document.getElementById('btnAddCustom').onclick = async () => {
+      const home_team_name = document.getElementById('cmHome').value.trim();
+      const away_team_name = document.getElementById('cmAway').value.trim();
+      const league = document.getElementById('cmLeague').value.trim();
+      const country = document.getElementById('cmCountry').value.trim();
+      const dateInput = document.getElementById('cmDate').value;
+      const suggested_market = document.getElementById('cmMarket').value.trim();
+      const suggested_score = document.getElementById('cmScore').value.trim();
+      const notes = document.getElementById('cmNotes').value.trim();
+
+      if (!home_team_name || !away_team_name || !league || !dateInput || !suggested_market) {
+        log('❌ Fill in home, away, league, date and market');
+        return;
+      }
+
+      try {
+        await call('/custom-matches', 'POST', {
+          home_team_name,
+          away_team_name,
+          league,
+          country,
+          date: new Date(dateInput).toISOString(),
+          suggested_market,
+          suggested_score,
+          notes,
+        });
+        log('✅ Custom match created');
+        ['cmHome','cmAway','cmLeague','cmCountry','cmDate','cmMarket','cmScore','cmNotes'].forEach(id => {
+          document.getElementById(id).value = '';
+        });
+        loadCustomMatches();
+      } catch (e) {
+        log('❌ ' + e.message);
+      }
+    };
+
+    // ── Init ──
     setInterval(refresh, 10000);
     refresh();
+    loadCustomMatches();
   </script>
 </body>
 </html>
