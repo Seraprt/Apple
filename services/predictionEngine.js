@@ -455,16 +455,34 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
     match.date
   );
 
-  const { homeWin, draw, awayWin, scoreDiff } = computeProbabilities(
-    homeFactors,
-    awayFactors,
-    weatherMult
-  );
+  // ── Factor signal (used for confidence + small adjustment) ──
+  const { scoreDiff } = computeProbabilities(homeFactors, awayFactors, weatherMult);
   const confidence = computeConfidence(homeFactors, awayFactors, scoreDiff);
 
+  // ── Poisson xG + probabilities (these have a REAL draw) ──
   const { homeXg, awayXg } = computeXg(homeTeam, awayTeam, weatherMult);
   const probs = computeAllMarketProbs(homeXg, awayXg);
 
+  const poissonHome = probs.home_win;
+  const poissonDraw = probs.draw;
+  const poissonAway = probs.away_win;
+
+  // ── Blend Poisson with factor signal ──
+  // signal ranges -1 → +1. Max adjustment is 10% shift in each direction.
+  const signal = Math.tanh(scoreDiff * 1.5);
+  const shift = signal * 0.10;
+
+  let homeWin = poissonHome + Math.max(0, shift);
+  let awayWin = poissonAway + Math.max(0, -shift);
+  let draw = poissonDraw - Math.abs(shift);
+
+  // Renormalize to sum = 1
+  const sum = homeWin + draw + awayWin;
+  homeWin /= sum;
+  draw /= sum;
+  awayWin /= sum;
+
+  // ── Best market (uses full probs from Poisson) ──
   const { bestMarket, bestProb, bestScore } = pickBestMarket(
     probs,
     confidence,
@@ -481,7 +499,7 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
 
   const reasons = buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, context);
 
-  const pick =
+  const pickText =
     likelyResult === 'home'
       ? `${homeTeam.name} win`
       : likelyResult === 'away'
@@ -489,8 +507,6 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
       : 'Draw';
 
   const marketLabel = formatMarketLabel(bestMarket);
-
-  // ✅ FIXED — bracket notation for over_2.5
   const over25 = probs['over_2.5'] || 0;
 
   return {
@@ -507,7 +523,7 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
       probability: +bestProb.toFixed(4),
       score: +bestScore.toFixed(4),
     },
-    pick: marketLabel || pick,
+    pick: marketLabel || pickText,
     secondary_pick: secondary
       ? {
           market: secondary.market,
@@ -518,9 +534,9 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
     reasons,
     reason_short: reasons[0]
       ? `${reasons[0].title}. ${reasons[0].text}`
-      : `Model picks ${marketLabel || pick}.`,
+      : `Model picks ${marketLabel || pickText}.`,
     markets: [
-      { key: 'Result', value: pick.replace(' win', '') },
+      { key: 'Result', value: pickText.replace(' win', '') },
       { key: 'BTTS', value: probs.btts_yes > 0.5 ? 'Yes' : 'No' },
       { key: 'Goals', value: over25 > 0.5 ? 'Over 2.5' : 'Under 2.5' },
     ],
@@ -528,7 +544,6 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
     away_factors: awayFactors,
   };
 }
-
 // ══════════════════════════════════════════════
 // Market labels
 // ══════════════════════════════════════════════

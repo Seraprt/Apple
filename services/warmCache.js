@@ -1,5 +1,5 @@
 const Match = require('../models/Match');
-const Team = require('../models/Teams');
+const Team = require('../models/Teams');                  // ← FIXED
 const MatchAnalysis = require('../models/MatchAnalysis');
 const { analyzeMatch } = require('./predictionEngine');
 
