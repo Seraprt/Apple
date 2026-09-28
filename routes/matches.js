@@ -40,23 +40,34 @@ router.get('/analysis', async (req, res) => {
       let analysis = await MatchAnalysis.findOne({ match_id: String(m._id) });
 
       results.push({
-        match_id: m._id,
-        date: m.date,
-        tournament: m.tournament,
-        home: { id: home._id, name: home.name, short: home.short, logo: home.logo, color: home.color },
-        away: { id: away._id, name: away.name, short: away.short, logo: away.logo, color: away.color },
-        home_win_prob: m.home_win_prob,
-        draw_prob: m.draw_prob,
-        away_win_prob: m.away_win_prob,
-        confidence: m.confidence,
-        correct_score: m.predicted_correct_score,
-        best_market: analysis?.best_market || null,
-        reason_short: analysis?.reason_short || null,
-        reasons: analysis?.reasons || [],
-        markets: analysis?.markets || [],
-      });
-    }
-
+  match_id: m._id,
+  date: m.date,
+  tournament: m.tournament,
+  home: {
+    id: home._id,
+    name: home.name,
+    short: home.short,
+    logo: home.logo,
+    color: home.color,
+  },
+  away: {
+    id: away._id,
+    name: away.name,
+    short: away.short,
+    logo: away.logo,
+    color: away.color,
+  },
+  home_win_prob: analysis?.home_win_prob || null,
+  draw_prob: analysis?.draw_prob || null,
+  away_win_prob: analysis?.away_win_prob || null,
+  confidence: analysis?.confidence || null,
+  correct_score: analysis?.correct_score || null,
+  best_market: analysis?.best_market || null,
+  pick: analysis?.pick || null,
+  reason_short: analysis?.reason_short || null,
+  reasons: analysis?.reasons || [],
+  markets: analysis?.markets || [],
+});
     res.json(results);
   } catch (err) {
     console.error('analysis error:', err);
