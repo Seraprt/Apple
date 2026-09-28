@@ -28,8 +28,6 @@ const LEAGUE_AVG_AWAY = 1.05;
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-// ── Markets always excluded from "best market" selection ──
-// (mirrors Python's `excluded` list in get_sure_bets)
 const EXCLUDED_MARKETS = [
   'under_0.5',
   'over_5.5',
@@ -40,7 +38,6 @@ const EXCLUDED_MARKETS = [
   'under_7.5',
 ];
 
-// ── Secondary-pick candidates (from Python) ──
 const SECONDARY_CANDIDATES = [
   ['home_win', 'Home win'],
   ['away_win', 'Away win'],
@@ -186,11 +183,11 @@ function computeAllMarketProbs(homeXg, awayXg) {
   probs.btts_yes = hs * as;
   probs.btts_no = 1 - probs.btts_yes;
 
-  // Any-team over/under 2.5
+  // ✅ FIXED — bracket notation because key contains a dot
   const pHomeLess3 = poissonCdf(2, homeXg);
   const pAwayLess3 = poissonCdf(2, awayXg);
-  probs.any_team_over_2.5_goals = 1 - pHomeLess3 * pAwayLess3;
-  probs.any_team_under_2.5_goals = pHomeLess3 * pAwayLess3;
+  probs['any_team_over_2.5_goals'] = 1 - pHomeLess3 * pAwayLess3;
+  probs['any_team_under_2.5_goals'] = pHomeLess3 * pAwayLess3;
 
   // Handicaps
   for (const hcap of [-3, -2, -1.5, -1, 1, 1.5, 2, 3]) {
@@ -233,7 +230,7 @@ function mostLikelyScore(homeXg, awayXg) {
 }
 
 // ══════════════════════════════════════════════
-// Best market — same exclusions + derby logic as Python
+// Best market
 // ══════════════════════════════════════════════
 function pickBestMarket(probs, confidence, context = {}) {
   let bestMarket = null;
@@ -242,7 +239,6 @@ function pickBestMarket(probs, confidence, context = {}) {
 
   for (const [market, prob] of Object.entries(probs)) {
     if (EXCLUDED_MARKETS.includes(market)) continue;
-    // Derby: skip weak win markets (Python does the same)
     if (
       context.is_derby &&
       ['home_win', 'away_win'].includes(market) &&
@@ -261,12 +257,11 @@ function pickBestMarket(probs, confidence, context = {}) {
 }
 
 // ══════════════════════════════════════════════
-// Secondary market (like Python's sure bets)
+// Secondary market
 // ══════════════════════════════════════════════
 function pickSecondaryMarket(probs, bestMarket, likelyResult, context = {}, minProb = 0.6) {
   let candidates = [...SECONDARY_CANDIDATES];
 
-  // Remove contradicting markets
   if (likelyResult === 'home') {
     candidates = candidates.filter(([m]) => m !== 'X2');
   } else if (likelyResult === 'away') {
@@ -287,14 +282,13 @@ function pickSecondaryMarket(probs, bestMarket, likelyResult, context = {}, minP
 }
 
 // ══════════════════════════════════════════════
-// Reasons — plain-English
+// Reasons
 // ══════════════════════════════════════════════
 function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, context) {
   const reasons = [];
   const hs = homeTeam.short || homeTeam.name.slice(0, 3).toUpperCase();
   const as_ = awayTeam.short || awayTeam.name.slice(0, 3).toUpperCase();
 
-  // ── Context (derby/final/knockout) ──
   if (context.is_final) {
     reasons.push({
       tone: 'warn',
@@ -322,7 +316,6 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
     });
   }
 
-  // ── League tier gap ──
   const homeTier = getTierFactor(homeTeam.league);
   const awayTier = getTierFactor(awayTeam.league);
   const tierDiff = homeTier - awayTier;
@@ -340,7 +333,6 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
     });
   }
 
-  // ── Attack vs defence ──
   const hAtk = homeTeam.attack_rating ?? 1.0;
   const hDef = homeTeam.defence_rating ?? 1.0;
   const aAtk = awayTeam.attack_rating ?? 1.0;
@@ -368,7 +360,6 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
     });
   }
 
-  // ── Form ──
   if (homeFactors.form > awayFactors.form + 0.15) {
     reasons.push({
       tone: 'good',
@@ -387,7 +378,6 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
     });
   }
 
-  // ── Home / away strength ──
   if (homeFactors.home_away > 0.65) {
     reasons.push({
       tone: 'good',
@@ -407,7 +397,6 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
     });
   }
 
-  // ── Fatigue ──
   if (homeFactors.fatigue < 0.75) {
     reasons.push({
       tone: 'warn',
@@ -427,7 +416,6 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
     });
   }
 
-  // ── H2H ──
   if (homeFactors.h2h > 0.7) {
     reasons.push({
       tone: 'good',
@@ -450,7 +438,7 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
 }
 
 // ══════════════════════════════════════════════
-// Analyze a match — mirrors Python's sure-bet flow
+// Analyze a match
 // ══════════════════════════════════════════════
 async function analyzeMatch(match, homeTeam, awayTeam) {
   const context = getMatchContext(match);
@@ -477,7 +465,6 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
   const { homeXg, awayXg } = computeXg(homeTeam, awayTeam, weatherMult);
   const probs = computeAllMarketProbs(homeXg, awayXg);
 
-  // Best market — same as Python's sure bets
   const { bestMarket, bestProb, bestScore } = pickBestMarket(
     probs,
     confidence,
@@ -486,18 +473,14 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
 
   const correctScore = mostLikelyScore(homeXg, awayXg);
 
-  // Likely result (for secondary pick sanity check)
   let likelyResult = 'draw';
   if (homeWin > awayWin && homeWin > draw) likelyResult = 'home';
   else if (awayWin > homeWin && awayWin > draw) likelyResult = 'away';
 
-  // Secondary pick
   const secondary = pickSecondaryMarket(probs, bestMarket, likelyResult, context, 0.6);
 
-  // Reasons
   const reasons = buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, context);
 
-  // Add reason explaining the pick
   const pick =
     likelyResult === 'home'
       ? `${homeTeam.name} win`
@@ -505,8 +488,10 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
       ? `${awayTeam.name} win`
       : 'Draw';
 
-  // Format best market for display
   const marketLabel = formatMarketLabel(bestMarket);
+
+  // ✅ FIXED — bracket notation for over_2.5
+  const over25 = probs['over_2.5'] || 0;
 
   return {
     home_win_prob: +homeWin.toFixed(4),
@@ -537,7 +522,7 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
     markets: [
       { key: 'Result', value: pick.replace(' win', '') },
       { key: 'BTTS', value: probs.btts_yes > 0.5 ? 'Yes' : 'No' },
-      { key: 'Goals', value: probs.over_2.5 > 0.5 ? 'Over 2.5' : 'Under 2.5' },
+      { key: 'Goals', value: over25 > 0.5 ? 'Over 2.5' : 'Under 2.5' },
     ],
     home_factors: homeFactors,
     away_factors: awayFactors,
@@ -545,7 +530,7 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
 }
 
 // ══════════════════════════════════════════════
-// Human-readable market labels
+// Market labels
 // ══════════════════════════════════════════════
 function formatMarketLabel(market) {
   if (!market) return '';
@@ -568,17 +553,9 @@ function formatMarketLabel(market) {
     under_3_5: 'Under 3.5',
     'any_team_over_2.5_goals': 'Any team Over 2.5',
     'any_team_under_2.5_goals': 'Any team Under 2.5',
-    home__1: 'Home -1',
-    home__2: 'Home -2',
-    home__3: 'Home -3',
-    away__1: 'Away -1',
-    away__2: 'Away -2',
-    away__3: 'Away -3',
   };
-  // Normalize dots to underscores
   const key = market.replace(/\./g, '_');
   if (map[key]) return map[key];
-  // Handle home_+2 style
   if (/^home_\+\d/.test(market)) return `Home +${market.split('+')[1]}`;
   if (/^away_\+\d/.test(market)) return `Away +${market.split('+')[1]}`;
   if (/^home_-\d/.test(market)) return `Home ${market.split('home')[1]}`;
