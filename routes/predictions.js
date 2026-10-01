@@ -1,13 +1,13 @@
 const express = require('express');
-const Team = require('../models/Teams');
+const Team = require('../models/Team');
 const { compareTeams } = require('../services/predictionEngine');
 
 const router = express.Router();
 
-// GET /api/predictions/compare?home_id=X&away_id=Y
+// GET /api/predictions/compare?home_id=X&away_id=Y&neutral=true
 router.get('/compare', async (req, res) => {
   try {
-    const { home_id, away_id } = req.query;
+    const { home_id, away_id, neutral } = req.query;
     if (!home_id || !away_id) {
       return res.status(400).json({ error: 'home_id and away_id required' });
     }
@@ -18,7 +18,8 @@ router.get('/compare', async (req, res) => {
     ]);
     if (!home || !away) return res.status(404).json({ error: 'Team not found' });
 
-    const result = await compareTeams(home, away);   // ← AWAIT!
+    const isNeutral = neutral === 'true' || neutral === '1';
+    const result = await compareTeams(home, away, isNeutral);
     res.json(result);
   } catch (err) {
     console.error('compare error:', err);

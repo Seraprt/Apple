@@ -29,13 +29,8 @@ const LEAGUE_AVG_AWAY = 1.05;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 const EXCLUDED_MARKETS = [
-  'under_0.5',
-  'over_5.5',
-  'under_5.5',
-  'over_6.5',
-  'under_6.5',
-  'over_7.5',
-  'under_7.5',
+  'under_0.5', 'over_5.5', 'under_5.5',
+  'over_6.5', 'under_6.5', 'over_7.5', 'under_7.5',
 ];
 
 const SECONDARY_CANDIDATES = [
@@ -92,7 +87,7 @@ function computeXg(homeTeam, awayTeam, weatherMult = 1.0) {
 }
 
 // ══════════════════════════════════════════════
-// 1X2 from weighted factor diff
+// 1X2 from weighted factor diff (raw signal)
 // ══════════════════════════════════════════════
 function computeProbabilities(homeFactors, awayFactors, weatherMult) {
   let scoreDiff = 0;
@@ -183,13 +178,11 @@ function computeAllMarketProbs(homeXg, awayXg) {
   probs.btts_yes = hs * as;
   probs.btts_no = 1 - probs.btts_yes;
 
-  // ✅ Bracket notation — keys contain dots
   const pHomeLess3 = poissonCdf(2, homeXg);
   const pAwayLess3 = poissonCdf(2, awayXg);
   probs['any_team_over_2.5_goals'] = 1 - pHomeLess3 * pAwayLess3;
   probs['any_team_under_2.5_goals'] = pHomeLess3 * pAwayLess3;
 
-  // Handicaps
   for (const hcap of [-3, -2, -1.5, -1, 1, 1.5, 2, 3]) {
     if (hcap < 0) {
       let p = 0;
@@ -216,7 +209,7 @@ function computeAllMarketProbs(homeXg, awayXg) {
 }
 
 // ══════════════════════════════════════════════
-// Most likely correct score
+// Most likely score
 // ══════════════════════════════════════════════
 function mostLikelyScore(homeXg, awayXg) {
   let best = '0-0', bestP = 0;
@@ -243,9 +236,7 @@ function pickBestMarket(probs, confidence, context = {}) {
       context.is_derby &&
       ['home_win', 'away_win'].includes(market) &&
       prob < 0.5
-    ) {
-      continue;
-    }
+    ) continue;
     const score = prob * confidence;
     if (score > bestScore) {
       bestScore = score;
@@ -291,26 +282,20 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
 
   if (context.is_final) {
     reasons.push({
-      tone: 'warn',
-      weight: 0.85,
-      tag: 'Match context',
+      tone: 'warn', weight: 0.85, tag: 'Match context',
       title: 'This is a FINAL',
       text: 'High motivation and intensity expected. Form can be overridden by the occasion.',
     });
   } else if (context.is_knockout) {
     reasons.push({
-      tone: 'warn',
-      weight: 0.72,
-      tag: 'Match context',
+      tone: 'warn', weight: 0.72, tag: 'Match context',
       title: 'Knockout stage',
       text: 'Teams will be extra cautious and motivated — expect a tight game.',
     });
   }
   if (context.is_derby) {
     reasons.push({
-      tone: 'warn',
-      weight: 0.8,
-      tag: 'Derby',
+      tone: 'warn', weight: 0.8, tag: 'Derby',
       title: 'This is a derby',
       text: 'Rivalry and emotion can override form and statistics in this fixture.',
     });
@@ -343,8 +328,7 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
 
   if (hEdge > 0.05) {
     reasons.push({
-      tone: 'good',
-      weight: clamp(hEdge * 1.7, 0.3, 0.95),
+      tone: 'good', weight: clamp(hEdge * 1.7, 0.3, 0.95),
       tag: 'Attack vs defence',
       title: `${homeTeam.name} attack outmatches the ${awayTeam.name} defence`,
       text: `${hs} carry a ${Math.round(hAtk * 100)} attack rating into a back line rated ${Math.round(aDef * 100)}. That gap is worth ~${(hEdge * 1.9).toFixed(2)} xG.`,
@@ -352,8 +336,7 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
   }
   if (aEdge > 0.05) {
     reasons.push({
-      tone: 'warn',
-      weight: clamp(aEdge * 1.7, 0.3, 0.95),
+      tone: 'warn', weight: clamp(aEdge * 1.7, 0.3, 0.95),
       tag: 'Counter threat',
       title: `${awayTeam.name} can hurt ${homeTeam.name} going forward`,
       text: `${as_} rate ${Math.round(aAtk * 100)} in attack against a ${hs} defence at ${Math.round(hDef * 100)}.`,
@@ -362,55 +345,53 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
 
   if (homeFactors.form > awayFactors.form + 0.15) {
     reasons.push({
-      tone: 'good',
-      weight: clamp(homeFactors.form - awayFactors.form + 0.3, 0.3, 0.9),
+      tone: 'good', weight: clamp(homeFactors.form - awayFactors.form + 0.3, 0.3, 0.9),
       tag: 'Recent form',
       title: `${homeTeam.name} arrive in better form`,
       text: `${hs} form ${Math.round(homeFactors.form * 100)} vs ${as_} ${Math.round(awayFactors.form * 100)} over the last 5 games.`,
     });
   } else if (awayFactors.form > homeFactors.form + 0.15) {
     reasons.push({
-      tone: 'warn',
-      weight: clamp(awayFactors.form - homeFactors.form + 0.3, 0.3, 0.9),
+      tone: 'warn', weight: clamp(awayFactors.form - homeFactors.form + 0.3, 0.3, 0.9),
       tag: 'Recent form',
       title: `${awayTeam.name} arrive in better form`,
       text: `${as_} form ${Math.round(awayFactors.form * 100)} vs ${hs} ${Math.round(homeFactors.form * 100)} over the last 5 games.`,
     });
   }
 
-  if (homeFactors.home_away > 0.65) {
+  if (!context.neutral) {
+    if (homeFactors.home_away > 0.65) {
+      reasons.push({
+        tone: 'good', weight: 0.78, tag: 'Home strength',
+        title: `${homeTeam.name} are strong at home`,
+        text: `Home strength ${homeFactors.home_away.toFixed(2)} — they convert chances at a higher rate at home.`,
+      });
+    }
+    if (awayFactors.home_away < 0.35) {
+      reasons.push({
+        tone: 'bad', weight: 0.92, tag: 'Away form',
+        title: `${awayTeam.name} are a poor travelling side`,
+        text: `Away strength ${awayFactors.home_away.toFixed(2)} — below our 0.35 danger line.`,
+      });
+    }
+  } else {
     reasons.push({
-      tone: 'good',
-      weight: 0.78,
-      tag: 'Home strength',
-      title: `${homeTeam.name} are strong at home`,
-      text: `Home strength ${homeFactors.home_away.toFixed(2)} — they convert chances at a higher rate at home.`,
-    });
-  }
-  if (awayFactors.home_away < 0.35) {
-    reasons.push({
-      tone: 'bad',
-      weight: 0.92,
-      tag: 'Away form',
-      title: `${awayTeam.name} are a poor travelling side`,
-      text: `Away strength ${awayFactors.home_away.toFixed(2)} — below our 0.35 danger line.`,
+      tone: 'ok', weight: 0.5, tag: 'Neutral venue',
+      title: 'Neutral venue comparison',
+      text: 'Home advantage is ignored for this comparison.',
     });
   }
 
   if (homeFactors.fatigue < 0.75) {
     reasons.push({
-      tone: 'warn',
-      weight: 0.7,
-      tag: 'Fatigue',
+      tone: 'warn', weight: 0.7, tag: 'Fatigue',
       title: `${homeTeam.name} may be fatigued`,
       text: 'Short rest between matches — could affect intensity.',
     });
   }
   if (awayFactors.fatigue < 0.75) {
     reasons.push({
-      tone: 'warn',
-      weight: 0.7,
-      tag: 'Fatigue',
+      tone: 'warn', weight: 0.7, tag: 'Fatigue',
       title: `${awayTeam.name} may be fatigued`,
       text: 'Short rest between matches — could affect intensity.',
     });
@@ -418,17 +399,13 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
 
   if (homeFactors.h2h > 0.7) {
     reasons.push({
-      tone: 'good',
-      weight: 0.6,
-      tag: 'Head to head',
+      tone: 'good', weight: 0.6, tag: 'Head to head',
       title: `${homeTeam.name} dominate this fixture`,
       text: `${hs} have the better recent head-to-head record.`,
     });
   } else if (homeFactors.h2h < 0.3) {
     reasons.push({
-      tone: 'warn',
-      weight: 0.6,
-      tag: 'Head to head',
+      tone: 'warn', weight: 0.6, tag: 'Head to head',
       title: `${awayTeam.name} dominate this fixture`,
       text: `${as_} have the better recent head-to-head record.`,
     });
@@ -438,10 +415,11 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
 }
 
 // ══════════════════════════════════════════════
-// Analyze a match — blend Poisson with factor signal
+// Analyze a match
 // ══════════════════════════════════════════════
 async function analyzeMatch(match, homeTeam, awayTeam) {
   const context = getMatchContext(match);
+  context.neutral = match.neutral === true;
 
   const { homeFactors, awayFactors } = await computeMatchFactors(
     match,
@@ -455,11 +433,9 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
     match.date
   );
 
-  // Factor signal (for confidence + small adjustment)
   const { scoreDiff } = computeProbabilities(homeFactors, awayFactors, weatherMult);
   const confidence = computeConfidence(homeFactors, awayFactors, scoreDiff);
 
-  // Poisson xG + probabilities (these have a REAL draw)
   const { homeXg, awayXg } = computeXg(homeTeam, awayTeam, weatherMult);
   const probs = computeAllMarketProbs(homeXg, awayXg);
 
@@ -467,33 +443,53 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
   const poissonDraw = probs.draw;
   const poissonAway = probs.away_win;
 
-  // Blend: signal ranges -1 → +1. Max shift = 10% per side.
-  const signal = Math.tanh(scoreDiff * 1.5);
-  const shift = signal * 0.10;
+  // ── Get correct score FIRST so we can use it in the draw safety net ──
+  const correctScore = mostLikelyScore(homeXg, awayXg);
 
-  let homeWin = poissonHome + Math.max(0, shift);
-  let awayWin = poissonAway + Math.max(0, -shift);
-  let draw = poissonDraw - Math.abs(shift);
+  // ── Gentle blend: max 5% shift toward favourite ──
+  const signal = Math.tanh(scoreDiff * 1.5);
+  const shift = signal * 0.05;
+
+  let homeWin = poissonHome;
+  let awayWin = poissonAway;
+  let draw = poissonDraw;
+
+  if (shift > 0) {
+    // Home is favoured — pull from draw, but never reduce draw below 60% of its value
+    const takeFrom = Math.min(draw * 0.4, shift);
+    homeWin += takeFrom;
+    draw -= takeFrom;
+  } else if (shift < 0) {
+    // Away is favoured
+    const takeFrom = Math.min(draw * 0.4, -shift);
+    awayWin += takeFrom;
+    draw -= takeFrom;
+  }
+
+  // ── Safety net: if predicted correct score IS a draw, force min 20% draw ──
+  const [csH, csA] = correctScore.split('-').map(Number);
+  if (csH === csA && draw < 0.20) {
+    const need = 0.20 - draw;
+    draw += need;
+    const total = homeWin + awayWin;
+    if (total > 0) {
+      homeWin -= need * (homeWin / total);
+      awayWin -= need * (awayWin / total);
+    }
+  }
 
   const sum = homeWin + draw + awayWin;
   homeWin /= sum;
   draw /= sum;
   awayWin /= sum;
 
-  const { bestMarket, bestProb, bestScore } = pickBestMarket(
-    probs,
-    confidence,
-    context
-  );
-
-  const correctScore = mostLikelyScore(homeXg, awayXg);
+  const { bestMarket, bestProb, bestScore } = pickBestMarket(probs, confidence, context);
 
   let likelyResult = 'draw';
   if (homeWin > awayWin && homeWin > draw) likelyResult = 'home';
   else if (awayWin > homeWin && awayWin > draw) likelyResult = 'away';
 
   const secondary = pickSecondaryMarket(probs, bestMarket, likelyResult, context, 0.6);
-
   const reasons = buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, context);
 
   const pickText =
@@ -579,17 +575,19 @@ function formatMarketLabel(market) {
 // ══════════════════════════════════════════════
 // Compare teams
 // ══════════════════════════════════════════════
-async function compareTeams(home, away) {
+async function compareTeams(home, away, neutral = false) {
   const fakeMatch = {
     date: new Date(),
-    tournament: 'Friendly',
+    tournament: neutral ? 'Neutral Friendly' : 'Friendly',
     stage: 'friendly',
     home_team_id: home._id,
     away_team_id: away._id,
+    neutral,
   };
   const result = await analyzeMatch(fakeMatch, home, away);
 
   return {
+    neutral,
     home_team: {
       id: home._id,
       name: home.name,

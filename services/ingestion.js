@@ -1,6 +1,7 @@
 const axios = require('axios');
-const Team = require('../models/Teams');
+const Team = require('../models/Team');
 const Match = require('../models/Match');
+const { normalizeLeague } = require('./leagues');
 
 const FOOTBALL_API = 'https://api.football-data.org/v4';
 const COMPETITION_TO_SPORT_KEY = {
@@ -29,7 +30,10 @@ async function getOrCreateTeam(teamData, competitionName) {
   if (!name) return null;
 
   const crest = teamData.crest || '';
-  const short = (teamData.tla || teamData.shortName || name.slice(0, 3)).toUpperCase().slice(0, 3);
+  const short = (teamData.tla || teamData.shortName || name.slice(0, 3))
+    .toUpperCase()
+    .slice(0, 3);
+  const normalizedLeague = normalizeLeague(competitionName);
 
   let team = await Team.findOne({ name });
   if (!team) {
@@ -37,7 +41,7 @@ async function getOrCreateTeam(teamData, competitionName) {
       name,
       short,
       logo: crest,
-      league: competitionName,
+      league: normalizedLeague,
       attack_rating: 1.0,
       defence_rating: 1.0,
       elo_rating: 1500,
@@ -47,10 +51,11 @@ async function getOrCreateTeam(teamData, competitionName) {
       external_id: String(teamData.id || ''),
     });
   } else {
+    // Always keep league in sync — teams get promoted/relegated each season
     const updates = {};
     if (crest && !team.logo) updates.logo = crest;
     if (short && !team.short) updates.short = short;
-    if (competitionName && !team.league) updates.league = competitionName;
+    if (normalizedLeague) updates.league = normalizedLeague;
     if (Object.keys(updates).length) {
       await Team.updateOne({ _id: team._id }, { $set: updates });
     }
@@ -60,7 +65,6 @@ async function getOrCreateTeam(teamData, competitionName) {
 
 // ── Update attack/defence + ELO + PPG ──
 async function updateRatings(home, away, homeGoals, awayGoals) {
-  // Attack / defence
   const homeObsAttack = homeGoals / LEAGUE_AVG_HOME;
   const awayObsAttack = awayGoals / LEAGUE_AVG_AWAY;
   const homeObsDefence = awayGoals / LEAGUE_AVG_HOME;
@@ -71,7 +75,6 @@ async function updateRatings(home, away, homeGoals, awayGoals) {
   const newAwayAttack = Math.max(0.3, Math.min(2.5, away.attack_rating * (1 - ALPHA) + awayObsAttack * ALPHA));
   const newAwayDefence = Math.max(0.3, Math.min(2.5, away.defence_rating * (1 - ALPHA) + awayObsDefence * ALPHA));
 
-  // ELO
   const K = 30;
   const expHome = 1 / (1 + Math.pow(10, (away.elo_rating - home.elo_rating) / 400));
   const expAway = 1 - expHome;
@@ -80,7 +83,6 @@ async function updateRatings(home, away, homeGoals, awayGoals) {
   const newHomeElo = home.elo_rating + K * (homeResult - expHome);
   const newAwayElo = away.elo_rating + K * (awayResult - expAway);
 
-  // Home/away PPG
   const PPG_ALPHA = 0.15;
   const homePts = homeGoals > awayGoals ? 3 : homeGoals === awayGoals ? 1 : 0;
   const awayPts = awayGoals > homeGoals ? 3 : awayGoals === homeGoals ? 1 : 0;
@@ -90,15 +92,19 @@ async function updateRatings(home, away, homeGoals, awayGoals) {
   await Team.updateOne(
     { _id: home._id },
     { $set: {
-      attack_rating: newHomeAttack, defence_rating: newHomeDefence,
-      elo_rating: newHomeElo, home_ppg: newHomePpg,
+      attack_rating: newHomeAttack,
+      defence_rating: newHomeDefence,
+      elo_rating: newHomeElo,
+      home_ppg: newHomePpg,
     }}
   );
   await Team.updateOne(
     { _id: away._id },
     { $set: {
-      attack_rating: newAwayAttack, defence_rating: newAwayDefence,
-      elo_rating: newAwayElo, away_ppg: newAwayPpg,
+      attack_rating: newAwayAttack,
+      defence_rating: newAwayDefence,
+      elo_rating: newAwayElo,
+      away_ppg: newAwayPpg,
     }}
   );
 }
@@ -157,7 +163,6 @@ async function storeMatches(matches) {
         away_goals: awayGoals,
       });
     } else if (finished && existing.home_goals === null) {
-      // Update finished result
       existing.home_goals = homeGoals;
       existing.away_goals = awayGoals;
       await existing.save();

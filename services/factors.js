@@ -1,102 +1,12 @@
 // ══════════════════════════════════════════════
 // services/factors.js
-// Exact port of app/factors.py + league tier awareness
+// Port of app/factors.py + league tier awareness + neutral venue
 // ══════════════════════════════════════════════
 
 const Match = require('../models/Match');
-const Team = require('../models/Teams');
+const Team = require('../models/Team');
 const Player = require('../models/Player');
-
-// ══════════════════════════════════════════════
-// LEAGUE TIERS
-// Multiplier representing the quality of a league.
-// Top-5 European = 1.00, Second tier = ~0.65-0.85,
-// Non-European top flights = 0.70-0.80.
-// ══════════════════════════════════════════════
-const LEAGUE_TIERS = {
-  // ── Top 5 European ──
-  'premier league': 1.00,
-  'la liga': 0.98,
-  'serie a': 0.97,
-  'bundesliga': 0.98,
-  'ligue 1': 0.95,
-  'champions league': 1.02,
-  'uefa champions league': 1.02,
-  'europa league': 0.98,
-  'uefa europa league': 0.98,
-
-  // ── Second tier European ──
-  'eredivisie': 0.85,
-  'primeira liga': 0.88,
-  'belgian pro league': 0.82,
-  'championship': 0.72,
-  'segunda division': 0.68,
-  'serie b': 0.65,
-  '2. bundesliga': 0.65,
-  'ligue 2': 0.62,
-  'scottish premiership': 0.70,
-  'russian premier league': 0.78,
-  'turkish super lig': 0.78,
-  'super lig': 0.78,
-  'swiss super league': 0.74,
-  'austrian bundesliga': 0.72,
-  'ukrainian premier league': 0.72,
-
-  // ── Non-European top flights ──
-  'brasileirao': 0.80,
-  'campeonato brasileiro': 0.80,
-  'argentine primera division': 0.78,
-  'liga mx': 0.76,
-  'mls': 0.70,
-  'major league soccer': 0.70,
-  'saudi pro league': 0.72,
-  'j1 league': 0.74,
-  'k league 1': 0.72,
-
-  // ── Fallback ──
-  default: 0.80,
-};
-// ══════════════════════════════════════════════
-// Match context analysis (derby/final/knockout)
-// ══════════════════════════════════════════════
-function getMatchContext(match) {
-  const context = {
-    is_derby: false,
-    is_knockout: false,
-    is_final: false,
-    is_group: false,
-    is_world_cup: false,
-    motivation: 1.0,
-  };
-  const tournament = (match.tournament || '').toLowerCase();
-  const stage = (match.stage || '').toLowerCase();
-
-  if (tournament.includes('world cup')) context.is_world_cup = true;
-  if (stage.includes('final')) {
-    context.is_final = true;
-    context.motivation = 1.2;
-  } else if (stage.includes('semi') || stage.includes('quarter')) {
-    context.is_knockout = true;
-    context.motivation = 1.1;
-  } else if (stage.includes('group')) {
-    context.is_group = true;
-  }
-
-  if (
-    tournament.includes('derby') ||
-    tournament.includes('clasico') ||
-    tournament.includes('rival')
-  ) {
-    context.is_derby = true;
-  }
-
-  return context;
-}
-function getTierFactor(league) {
-  if (!league) return LEAGUE_TIERS.default;
-  const l = league.toLowerCase().trim();
-  return LEAGUE_TIERS[l] ?? LEAGUE_TIERS.default;
-}
+const { getTierFactor, normalizeLeague } = require('./leagues');
 
 // ══════════════════════════════════════════════
 // Helpers
@@ -162,7 +72,6 @@ async function getStrengthScore(teamId) {
   const elo = team.elo_rating || 1500;
   const baseStrength = Math.max(0, Math.min(100, (elo - 1000) / 10));
 
-  // Apply league tier — this is the key change
   const tier = getTierFactor(team.league);
   return baseStrength * tier;
 }
@@ -323,10 +232,48 @@ async function getDefenceRating(teamId) {
 }
 
 // ══════════════════════════════════════════════
+// 12. MATCH CONTEXT
+// ══════════════════════════════════════════════
+function getMatchContext(match) {
+  const context = {
+    is_derby: false,
+    is_knockout: false,
+    is_final: false,
+    is_group: false,
+    is_world_cup: false,
+    motivation: 1.0,
+  };
+  const tournament = (match.tournament || '').toLowerCase();
+  const stage = (match.stage || '').toLowerCase();
+
+  if (tournament.includes('world cup')) context.is_world_cup = true;
+  if (stage.includes('final')) {
+    context.is_final = true;
+    context.motivation = 1.2;
+  } else if (stage.includes('semi') || stage.includes('quarter')) {
+    context.is_knockout = true;
+    context.motivation = 1.1;
+  } else if (stage.includes('group')) {
+    context.is_group = true;
+  }
+
+  if (
+    tournament.includes('derby') ||
+    tournament.includes('clasico') ||
+    tournament.includes('rival')
+  ) {
+    context.is_derby = true;
+  }
+
+  return context;
+}
+
+// ══════════════════════════════════════════════
 // MAIN — compute all factors for a match
 // ══════════════════════════════════════════════
 async function computeMatchFactors(match, homeTeam, awayTeam) {
   const matchDate = new Date(match.date);
+  const neutral = match.neutral === true;
 
   const homeStrength = await getStrengthScore(homeTeam._id);
   const awayStrength = await getStrengthScore(awayTeam._id);
@@ -338,8 +285,8 @@ async function computeMatchFactors(match, homeTeam, awayTeam) {
     awayAvail,
     homeCoach,
     awayCoach,
-    homeHomeAway,
-    awayHomeAway,
+    homeHomeAwayRaw,
+    awayHomeAwayRaw,
     homeH2H,
     homeFatigue,
     awayFatigue,
@@ -360,6 +307,10 @@ async function computeMatchFactors(match, homeTeam, awayTeam) {
     getNewsScore(homeTeam._id),
     getNewsScore(awayTeam._id),
   ]);
+
+  // ⚡ Neutral venue: wipe out home advantage — both sides get 0.5
+  const homeHomeAway = neutral ? 0.5 : homeHomeAwayRaw;
+  const awayHomeAway = neutral ? 0.5 : awayHomeAwayRaw;
 
   const tournamentFactor = getTournamentFactor(
     match.tournament,
@@ -394,21 +345,18 @@ async function computeMatchFactors(match, homeTeam, awayTeam) {
     news: awayNews,
   };
 
-  // Include tier info for the engine to use in reasons & xG
-  const homeTier = getTierFactor(homeTeam.league);
-  const awayTier = getTierFactor(awayTeam.league);
-
   return {
     homeFactors,
     awayFactors,
-    homeTier,
-    awayTier,
+    homeTier: getTierFactor(homeTeam.league),
+    awayTier: getTierFactor(awayTeam.league),
+    neutral,
   };
 }
 
 module.exports = {
-  LEAGUE_TIERS,
   getTierFactor,
+  normalizeLeague,
   getFormScore,
   getStrengthScore,
   getAvailabilityScore,
@@ -419,8 +367,8 @@ module.exports = {
   getWeatherMultiplier,
   getFatigueScore,
   getNewsScore,
-  getMatchContext,
   getAttackRating,
   getDefenceRating,
+  getMatchContext,
   computeMatchFactors,
 };
