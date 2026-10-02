@@ -16,7 +16,7 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   ' https://sahmee.onrender.com', 
     // Capacitor
-  'https://formline.com.ng'
+  'https://formline.com.ng',
   'capacitor://localhost',
   'https://apple-1fr6.onrender.com/',
 ].filter(Boolean);
