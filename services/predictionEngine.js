@@ -1,6 +1,6 @@
 // ══════════════════════════════════════════════
 // services/predictionEngine.js
-// Mirrors the Python engine's sure-bets logic for Formline
+// Mirrors the Python engine's sure-bets logic + Formline enhancements
 // ══════════════════════════════════════════════
 
 const {
@@ -25,8 +25,26 @@ const WEIGHTS = {
 
 const LEAGUE_AVG_HOME = 1.35;
 const LEAGUE_AVG_AWAY = 1.05;
+const NEUTRAL_BASELINE = 1.20;
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+// ── Friendly descriptors ──
+function describeAttack(v) {
+  if (v >= 1.5) return 'elite';
+  if (v >= 1.2) return 'strong';
+  if (v >= 0.9) return 'average';
+  if (v >= 0.7) return 'weak';
+  return 'very weak';
+}
+
+function describeDefence(v) {
+  if (v <= 0.7) return 'elite';
+  if (v <= 0.9) return 'strong';
+  if (v <= 1.1) return 'average';
+  if (v <= 1.3) return 'weak';
+  return 'very weak';
+}
 
 const EXCLUDED_MARKETS = [
   'under_0.5', 'over_5.5', 'under_5.5',
@@ -58,16 +76,20 @@ function poissonCdf(k, lambda) {
 }
 
 // ══════════════════════════════════════════════
-// xG with league tier awareness — cap 4.5
+// xG — tier-aware + neutral symmetric
 // ══════════════════════════════════════════════
-function computeXg(homeTeam, awayTeam, weatherMult = 1.0) {
+function computeXg(homeTeam, awayTeam, weatherMult = 1.0, neutral = false) {
   const homeAttack = homeTeam.attack_rating ?? 1.0;
   const homeDefence = homeTeam.defence_rating ?? 1.0;
   const awayAttack = awayTeam.attack_rating ?? 1.0;
   const awayDefence = awayTeam.defence_rating ?? 1.0;
 
-  let homeXg = LEAGUE_AVG_HOME * homeAttack * awayDefence;
-  let awayXg = LEAGUE_AVG_AWAY * awayAttack * homeDefence;
+  // ⚡ Neutral: same baseline for both so swapping sides gives same result
+  const homeBaseline = neutral ? NEUTRAL_BASELINE : LEAGUE_AVG_HOME;
+  const awayBaseline = neutral ? NEUTRAL_BASELINE : LEAGUE_AVG_AWAY;
+
+  let homeXg = homeBaseline * homeAttack * awayDefence;
+  let awayXg = awayBaseline * awayAttack * homeDefence;
 
   const homeTier = getTierFactor(homeTeam.league);
   const awayTier = getTierFactor(awayTeam.league);
@@ -87,7 +109,7 @@ function computeXg(homeTeam, awayTeam, weatherMult = 1.0) {
 }
 
 // ══════════════════════════════════════════════
-// 1X2 from weighted factor diff (raw signal)
+// 1X2 raw signal
 // ══════════════════════════════════════════════
 function computeProbabilities(homeFactors, awayFactors, weatherMult) {
   let scoreDiff = 0;
@@ -116,7 +138,7 @@ function computeProbabilities(homeFactors, awayFactors, weatherMult) {
 }
 
 // ══════════════════════════════════════════════
-// Confidence
+// Confidence — agreement × extremity
 // ══════════════════════════════════════════════
 function computeConfidence(homeFactors, awayFactors, scoreDiff) {
   const contributions = [];
@@ -128,8 +150,7 @@ function computeConfidence(homeFactors, awayFactors, scoreDiff) {
 
   const n = contributions.length;
   const mean = contributions.reduce((a, b) => a + b, 0) / n;
-  const variance =
-    contributions.reduce((a, b) => a + (b - mean) ** 2, 0) / n;
+  const variance = contributions.reduce((a, b) => a + (b - mean) ** 2, 0) / n;
   const stdDev = Math.sqrt(variance);
 
   const agreement = 1 / (1 + stdDev);
@@ -331,7 +352,7 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
       tone: 'good', weight: clamp(hEdge * 1.7, 0.3, 0.95),
       tag: 'Attack vs defence',
       title: `${homeTeam.name} attack outmatches the ${awayTeam.name} defence`,
-      text: `${hs} carry a ${Math.round(hAtk * 100)} attack rating into a back line rated ${Math.round(aDef * 100)}. That gap is worth ~${(hEdge * 1.9).toFixed(2)} xG.`,
+      text: `${hs} bring a ${describeAttack(hAtk)} attack against a ${describeDefence(aDef)} back line. Expected goal contribution: +${(hEdge * 1.9).toFixed(2)} xG.`,
     });
   }
   if (aEdge > 0.05) {
@@ -339,7 +360,7 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
       tone: 'warn', weight: clamp(aEdge * 1.7, 0.3, 0.95),
       tag: 'Counter threat',
       title: `${awayTeam.name} can hurt ${homeTeam.name} going forward`,
-      text: `${as_} rate ${Math.round(aAtk * 100)} in attack against a ${hs} defence at ${Math.round(hDef * 100)}.`,
+      text: `${as_} bring a ${describeAttack(aAtk)} attack against a ${describeDefence(hDef)} back line. Expect them to create chances.`,
     });
   }
 
@@ -436,17 +457,16 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
   const { scoreDiff } = computeProbabilities(homeFactors, awayFactors, weatherMult);
   const confidence = computeConfidence(homeFactors, awayFactors, scoreDiff);
 
-  const { homeXg, awayXg } = computeXg(homeTeam, awayTeam, weatherMult);
+  const { homeXg, awayXg } = computeXg(homeTeam, awayTeam, weatherMult, context.neutral === true);
   const probs = computeAllMarketProbs(homeXg, awayXg);
 
   const poissonHome = probs.home_win;
   const poissonDraw = probs.draw;
   const poissonAway = probs.away_win;
 
-  // ── Get correct score FIRST so we can use it in the draw safety net ──
   const correctScore = mostLikelyScore(homeXg, awayXg);
 
-  // ── Gentle blend: max 5% shift toward favourite ──
+  // Gentle blend — max 5% shift toward favourite
   const signal = Math.tanh(scoreDiff * 1.5);
   const shift = signal * 0.05;
 
@@ -455,18 +475,16 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
   let draw = poissonDraw;
 
   if (shift > 0) {
-    // Home is favoured — pull from draw, but never reduce draw below 60% of its value
     const takeFrom = Math.min(draw * 0.4, shift);
     homeWin += takeFrom;
     draw -= takeFrom;
   } else if (shift < 0) {
-    // Away is favoured
     const takeFrom = Math.min(draw * 0.4, -shift);
     awayWin += takeFrom;
     draw -= takeFrom;
   }
 
-  // ── Safety net: if predicted correct score IS a draw, force min 20% draw ──
+  // Safety net — if predicted score is a draw, ensure min 20% draw
   const [csH, csA] = correctScore.split('-').map(Number);
   if (csH === csA && draw < 0.20) {
     const need = 0.20 - draw;
