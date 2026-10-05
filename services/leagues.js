@@ -5,26 +5,34 @@
 
 // ── Aliases: what the API calls it → what we display/store ──
 const LEAGUE_NAME_ALIASES = {
+  // ── La Liga (Spanish + English variants) ──
   'primera division': 'La Liga',
+  'premier division': 'La Liga',       // ← ADDED (this was the miss)
   'laliga': 'La Liga',
   'la liga santander': 'La Liga',
   'spanish la liga': 'La Liga',
 
+  // ── Serie A ──
   'serie a tim': 'Serie A',
   'italian serie a': 'Serie A',
 
+  // ── Bundesliga ──
   '1. bundesliga': 'Bundesliga',
   'german bundesliga': 'Bundesliga',
 
+  // ── Ligue 1 ──
   'ligue 1 uber eats': 'Ligue 1',
   'french ligue 1': 'Ligue 1',
 
+  // ── Premier League ──
   'english premier league': 'Premier League',
   'epl': 'Premier League',
 
+  // ── Champions League ──
   'uefa champions league': 'Champions League',
   'champions league': 'Champions League',
 
+  // ── Europa League ──
   'uefa europa league': 'Europa League',
   'europa league': 'Europa League',
 };
