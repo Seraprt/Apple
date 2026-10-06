@@ -5,6 +5,9 @@ const Match = require('../models/Match');
 const MatchAnalysis = require('../models/MatchAnalysis');
 const { warmAnalysisCache } = require('../services/warmCache');
 const CustomMatch = require('../models/CustomMatch');
+
+const User = require('../models/User');
+
 const router = express.Router();
 
 // Admin key middleware
@@ -143,6 +146,40 @@ router.delete('/custom-matches/:id', async (req, res) => {
     if (!deleted) return res.status(404).json({ error: 'Not found' });
     res.json({ message: 'Deleted' });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ───── GET /api/admin/users-stats ─────
+router.get('/users-stats', async (req, res) => {
+  try {
+    const [total, googleCount, emailCount, recentUsers] = await Promise.all([
+      User.countDocuments({}),
+      User.countDocuments({ provider: 'google' }),
+      User.countDocuments({ provider: 'email' }),
+      User.find({})
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .select('username email provider createdAt avatar')
+        .lean(),
+    ]);
+
+    res.json({
+      total,
+      google: googleCount,
+      email: emailCount,
+      other: Math.max(0, total - googleCount - emailCount),
+      recent: recentUsers.map((u) => ({
+        id: String(u._id),
+        username: u.username || 'Unknown',
+        email: u.email || '—',
+        provider: u.provider || 'email',
+        avatar: u.avatar || '',
+        createdAt: u.createdAt,
+      })),
+    });
+  } catch (err) {
+    console.error('users-stats error:', err);
     res.status(500).json({ error: err.message });
   }
 });

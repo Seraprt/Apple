@@ -10,7 +10,7 @@
       background: #0B0E13; color: #E9EEF6;
       font-family: system-ui, -apple-system, sans-serif;
       margin: 0; padding: 24px;
-      max-width: 640px; margin: 0 auto;
+      max-width: 720px; margin: 0 auto;
     }
     h1 { font-size: 22px; letter-spacing: -0.03em; margin-bottom: 4px; }
     h1 em { color: #C8F751; font-style: normal; }
@@ -19,7 +19,11 @@
       background: #11151C; border: 1px solid #232B37;
       border-radius: 12px; padding: 16px; margin-top: 16px;
     }
-    .card h3 { margin: 0 0 12px; font-size: 14px; letter-spacing: -0.01em; color: #8792A3; }
+    .card h3 {
+      margin: 0 0 12px; font-size: 14px;
+      letter-spacing: -0.01em; color: #8792A3;
+      text-transform: uppercase;
+    }
     input, textarea, button {
       font: inherit; padding: 12px 14px; border-radius: 10px;
       border: 1px solid #232B37; background: #161B24; color: #E9EEF6;
@@ -49,30 +53,142 @@
     }
     .badge.idle { background: rgba(62,213,152,.14); color: #3ED598; }
     .badge.running { background: rgba(255,176,32,.14); color: #FFB020; }
-    .row { display: flex; gap: 8px; }
-    .row > * { flex: 1; }
-    .custom-item {
-      padding: 10px 0;
-      border-bottom: 1px solid #232B37;
+    .badge.google { background: rgba(66,133,244,.18); color: #8ab4f8; }
+    .badge.email { background: rgba(200,247,81,.16); color: #C8F751; }
+
+    /* Users stats */
+    .users-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .users-tile {
+      background: #161B24;
+      border: 1px solid #232B37;
+      border-radius: 10px;
+      padding: 12px;
+      text-align: center;
+    }
+    .users-tile .num {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: #E9EEF6;
+      display: block;
+      margin-bottom: 4px;
+    }
+    .users-tile .lbl {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #5A6474;
+      font-weight: 700;
+    }
+    .users-tile.google .num { color: #8ab4f8; }
+    .users-tile.email .num { color: #C8F751; }
+
+    /* Ratio bar */
+    .ratio-bar {
       display: flex;
-      justify-content: space-between;
+      height: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+      background: #1C222C;
+      margin-bottom: 6px;
+    }
+    .ratio-bar .g { background: #4285F4; }
+    .ratio-bar .e { background: #C8F751; }
+    .ratio-bar .o { background: #5A6474; }
+
+    .ratio-legend {
+      display: flex;
+      gap: 14px;
+      font-size: 11px;
+      color: #8792A3;
+      margin-bottom: 14px;
+    }
+    .ratio-legend span b { color: #E9EEF6; }
+
+    /* Recent users table */
+    .user-row {
+      display: flex;
       align-items: center;
       gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid #1A2029;
+      font-size: 12.5px;
     }
-    .custom-item:last-child { border-bottom: 0; }
+    .user-row:last-child { border-bottom: 0; }
+    .user-row .name { flex: 1; font-weight: 650; }
+    .user-row .email { color: #8792A3; font-size: 11.5px; }
+    .user-row .when { color: #5A6474; font-size: 11px; }
+    .user-avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: linear-gradient(140deg, #2A3542, #1A212B);
+      display: grid; place-items: center;
+      font-size: 11px; font-weight: 800;
+      color: #C8F751;
+      overflow: hidden; flex: none;
+    }
+    .user-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .user-empty { color: #5A6474; font-size: 12.5px; padding: 12px 0; text-align: center; }
   </style>
 </head>
 <body>
   <h1>FORM<em>LINE</em> Admin</h1>
-  <p class="sub">Ingestion · Warm cache · Custom matches · Status</p>
+  <p class="sub">Ingestion · Warm cache · Users · Custom matches · Status</p>
 
   <div class="card">
     <h3>Admin Key</h3>
     <input type="password" id="adminKey" placeholder="Enter admin key" />
   </div>
 
+  <!-- ══════════════════════════════════════════ -->
+  <!-- USERS STATS -->
+  <!-- ══════════════════════════════════════════ -->
   <div class="card">
-    <h3>Status</h3>
+    <h3>Users</h3>
+
+    <div class="users-grid">
+      <div class="users-tile">
+        <span class="num" id="uTotal">—</span>
+        <span class="lbl">Total</span>
+      </div>
+      <div class="users-tile google">
+        <span class="num" id="uGoogle">—</span>
+        <span class="lbl">Google</span>
+      </div>
+      <div class="users-tile email">
+        <span class="num" id="uEmail">—</span>
+        <span class="lbl">Email</span>
+      </div>
+    </div>
+
+    <div class="ratio-bar" id="ratioBar">
+      <div class="g" id="ratioG" style="width:0%"></div>
+      <div class="e" id="ratioE" style="width:0%"></div>
+      <div class="o" id="ratioO" style="width:0%"></div>
+    </div>
+    <div class="ratio-legend">
+      <span><b style="color:#4285F4">●</b> Google <b id="legendG">0%</b></span>
+      <span><b style="color:#C8F751">●</b> Email <b id="legendE">0%</b></span>
+      <span><b style="color:#5A6474">●</b> Other <b id="legendO">0%</b></span>
+    </div>
+
+    <h4 style="margin: 4px 0 4px; font-size: 12px; color: #8792A3; text-transform: uppercase; letter-spacing: .06em;">
+      Recent signups
+    </h4>
+    <div id="recentUsers">
+      <div class="user-empty">Enter admin key to load users.</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════ -->
+  <!-- STATUS -->
+  <!-- ══════════════════════════════════════════ -->
+  <div class="card">
+    <h3>System Status</h3>
     <div class="stat"><span>Ingestion</span><span id="statIngest" class="badge idle">—</span></div>
     <div class="stat"><span>Warm cache</span><span id="statWarm" class="badge idle">—</span></div>
     <div class="stat"><span>Teams</span><strong id="statTeams">—</strong></div>
@@ -80,16 +196,22 @@
     <div class="stat"><span>Analyses cached</span><strong id="statAnalyses">—</strong></div>
   </div>
 
+  <!-- ══════════════════════════════════════════ -->
+  <!-- ACTIONS -->
+  <!-- ══════════════════════════════════════════ -->
   <div class="card">
     <h3>Actions</h3>
-    <button id="btnIngest">📥 Run Ingestion</button>
-    <button id="btnWarm">🔥 Warm Analysis Cache</button>
-    <button id="btnClear" class="danger">🗑️ Clear Analysis Cache</button>
-    <button id="btnRefresh">🔄 Refresh Status</button>
+    <button id="btnIngest">Run Ingestion</button>
+    <button id="btnWarm">Warm Analysis Cache</button>
+    <button id="btnClear" class="danger">Clear Analysis Cache</button>
+    <button id="btnRefresh">Refresh Status &amp; Users</button>
   </div>
 
+  <!-- ══════════════════════════════════════════ -->
+  <!-- CUSTOM MATCHES -->
+  <!-- ══════════════════════════════════════════ -->
   <div class="card">
-    <h3>➕ Add Custom Match</h3>
+    <h3>Add Custom Match</h3>
     <input id="cmHome" placeholder="Home team name" />
     <input id="cmAway" placeholder="Away team name" />
     <input id="cmLeague" placeholder="League (e.g. Nigerian Premier League)" />
@@ -102,17 +224,20 @@
   </div>
 
   <div class="card">
-    <h3>📋 Custom Matches</h3>
+    <h3>Custom Matches</h3>
     <div id="customList" style="font-size: 12px; color: #5A6474;">Loading…</div>
   </div>
 
+  <!-- ══════════════════════════════════════════ -->
+  <!-- LOG -->
+  <!-- ══════════════════════════════════════════ -->
   <div class="card">
     <h3>Log</h3>
     <div class="log" id="log">Ready. Paste your admin key and click Refresh.</div>
   </div>
 
   <script>
-    // ⚠️ Paste your backend URL here
+    // ⚠️ PASTE YOUR BACKEND URL HERE
     const API = 'https://apple-6r7q.onrender.com/api/admin';
 
     const logEl = document.getElementById('log');
@@ -154,7 +279,73 @@
       return data;
     }
 
-    // ── Status ──
+    // ═══════════════════════════════════════════
+    // USERS
+    // ═══════════════════════════════════════════
+    function initials(name) {
+      if (!name) return '?';
+      return name.slice(0, 2).toUpperCase();
+    }
+
+    async function loadUsers() {
+      try {
+        const data = await call('/users-stats');
+
+        document.getElementById('uTotal').textContent = data.total ?? 0;
+        document.getElementById('uGoogle').textContent = data.google ?? 0;
+        document.getElementById('uEmail').textContent = data.email ?? 0;
+
+        const total = data.total || 1; // avoid div by 0
+        const gp = Math.round((data.google / total) * 100);
+        const ep = Math.round((data.email / total) * 100);
+        const op = Math.max(0, 100 - gp - ep);
+
+        document.getElementById('ratioG').style.width = gp + '%';
+        document.getElementById('ratioE').style.width = ep + '%';
+        document.getElementById('ratioO').style.width = op + '%';
+
+        document.getElementById('legendG').textContent = gp + '%';
+        document.getElementById('legendE').textContent = ep + '%';
+        document.getElementById('legendO').textContent = op + '%';
+
+        const list = document.getElementById('recentUsers');
+        if (!data.recent?.length) {
+          list.innerHTML = '<div class="user-empty">No users yet.</div>';
+          return;
+        }
+
+        list.innerHTML = data.recent.map((u) => {
+          const when = u.createdAt
+            ? new Date(u.createdAt).toLocaleDateString(undefined, {
+                day: '2-digit', month: 'short', year: 'numeric',
+              })
+            : '—';
+          const avatar = u.avatar
+            ? `<img src="${u.avatar}" alt="" onerror="this.remove()" />`
+            : initials(u.username);
+          const badgeClass = u.provider === 'google' ? 'google' : 'email';
+          const badgeLabel = u.provider === 'google' ? 'Google' : 'Email';
+          return `
+            <div class="user-row">
+              <div class="user-avatar">${avatar}</div>
+              <div style="flex:1;min-width:0">
+                <div class="name">${u.username}</div>
+                <div class="email">${u.email}</div>
+              </div>
+              <span class="badge ${badgeClass}">${badgeLabel}</span>
+              <span class="when">${when}</span>
+            </div>
+          `;
+        }).join('');
+      } catch (e) {
+        document.getElementById('recentUsers').innerHTML =
+          '<div class="user-empty">Enter admin key to load users.</div>';
+      }
+    }
+
+    // ═══════════════════════════════════════════
+    // STATUS
+    // ═══════════════════════════════════════════
     async function refresh() {
       try {
         const s = await call('/status');
@@ -174,38 +365,40 @@
 
     document.getElementById('btnIngest').onclick = async () => {
       try {
-        log('▶️ Starting ingestion…');
+        log('Starting ingestion...');
         const r = await call('/ingest', 'POST');
-        log('✅ ' + r.message);
+        log('OK: ' + r.message);
         setTimeout(refresh, 2000);
-      } catch (e) { log('❌ ' + e.message); }
+      } catch (e) { log('ERROR: ' + e.message); }
     };
 
     document.getElementById('btnWarm').onclick = async () => {
       try {
-        log('▶️ Warming cache…');
+        log('Warming cache...');
         const r = await call('/warm-cache', 'POST');
-        log('✅ ' + r.message);
+        log('OK: ' + r.message);
         setTimeout(refresh, 2000);
-      } catch (e) { log('❌ ' + e.message); }
+      } catch (e) { log('ERROR: ' + e.message); }
     };
 
     document.getElementById('btnClear').onclick = async () => {
       if (!confirm('Clear all cached analyses?')) return;
       try {
         const r = await call('/clear-cache', 'POST');
-        log('✅ ' + r.message);
+        log('OK: ' + r.message);
         refresh();
-      } catch (e) { log('❌ ' + e.message); }
+      } catch (e) { log('ERROR: ' + e.message); }
     };
 
     document.getElementById('btnRefresh').onclick = () => {
-      log('🔄 Refreshing status…');
+      log('Refreshing...');
       refresh();
-      loadCustomMatches();
+      loadUsers();
     };
 
-    // ── Custom Matches ──
+    // ═══════════════════════════════════════════
+    // CUSTOM MATCHES
+    // ═══════════════════════════════════════════
     async function loadCustomMatches() {
       const list = document.getElementById('customList');
       try {
@@ -215,7 +408,7 @@
           return;
         }
         list.innerHTML = data.map(m => `
-          <div class="custom-item">
+          <div style="padding:10px 0;border-bottom:1px solid #232B37;display:flex;justify-content:space-between;align-items:center;gap:10px">
             <div>
               <div style="color:#E9EEF6;font-weight:600">${m.home_team_name} vs ${m.away_team_name}</div>
               <div style="font-size:11px;color:#5A6474;margin-top:2px">${m.league} · ${new Date(m.date).toLocaleString()}</div>
@@ -233,10 +426,10 @@
       if (!confirm('Delete this custom match?')) return;
       try {
         await call(`/custom-matches/${id}`, 'DELETE');
-        log('✅ Custom match deleted');
+        log('Custom match deleted');
         loadCustomMatches();
       } catch (e) {
-        log('❌ ' + e.message);
+        log('ERROR: ' + e.message);
       }
     };
 
@@ -251,7 +444,7 @@
       const notes = document.getElementById('cmNotes').value.trim();
 
       if (!home_team_name || !away_team_name || !league || !dateInput || !suggested_market) {
-        log('❌ Fill in home, away, league, date and market');
+        log('Fill in home, away, league, date and market');
         return;
       }
 
@@ -266,19 +459,20 @@
           suggested_score,
           notes,
         });
-        log('✅ Custom match created');
+        log('Custom match created');
         ['cmHome','cmAway','cmLeague','cmCountry','cmDate','cmMarket','cmScore','cmNotes'].forEach(id => {
           document.getElementById(id).value = '';
         });
         loadCustomMatches();
       } catch (e) {
-        log('❌ ' + e.message);
+        log('ERROR: ' + e.message);
       }
     };
 
-    // ── Init ──
+    // ── INIT ──
     setInterval(refresh, 10000);
     refresh();
+    loadUsers();
     loadCustomMatches();
   </script>
 </body>
