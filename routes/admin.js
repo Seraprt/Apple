@@ -5,7 +5,7 @@ const Match = require('../models/Match');
 const MatchAnalysis = require('../models/MatchAnalysis');
 const { warmAnalysisCache } = require('../services/warmCache');
 const CustomMatch = require('../models/CustomMatch');
-
+const DailyMessage = require('../models/DailyMessage');
 const User = require('../models/User');
 
 const router = express.Router();
@@ -184,4 +184,54 @@ router.get('/users-stats', async (req, res) => {
   }
 });
 
+
+
+// ───── GET /api/admin/activity-stats ─────
+router.get('/activity-stats', async (req, res) => {
+  try {
+    const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const fiveMinAgo = new Date(now.getTime() - 5 * 60 * 1000);
+    const thirtyMinAgo = new Date(now.getTime() - 30 * 60 * 1000);
+
+    const [
+      totalUsers,
+      loggedInToday,
+      onlineNow,
+      onlineLast30,
+      recentActive,
+    ] = await Promise.all([
+      User.countDocuments({}),
+      User.countDocuments({ lastLogin: { $gte: startOfToday } }),
+      User.countDocuments({ lastSeen: { $gte: fiveMinAgo } }),
+      User.countDocuments({ lastSeen: { $gte: thirtyMinAgo } }),
+      User.find({ lastSeen: { $ne: null } })
+        .sort({ lastSeen: -1 })
+        .limit(20)
+        .select('username email provider avatar lastLogin lastSeen')
+        .lean(),
+    ]);
+
+    res.json({
+      totalUsers,
+      loggedInToday,
+      onlineNow,
+      onlineLast30,
+      recentActive: recentActive.map((u) => ({
+        id: String(u._id),
+        username: u.username || 'Unknown',
+        email: u.email || '—',
+        provider: u.provider || 'email',
+        avatar: u.avatar || '',
+        lastLogin: u.lastLogin,
+        lastSeen: u.lastSeen,
+      })),
+    });
+  } catch (err) {
+    console.error('activity-stats error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 module.exports = router;

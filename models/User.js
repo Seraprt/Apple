@@ -10,6 +10,8 @@ const userSchema = new mongoose.Schema({
   avatar: { type: String, default: '' },
   favorites: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
   createdAt: { type: Date, default: Date.now },
+  lastLogin: { type: Date, default: null },   // set on every login
+  lastSeen: { type: Date, default: null },    // set on every auth'd request
 });
 
 userSchema.pre('save', async function () {

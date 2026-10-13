@@ -137,7 +137,7 @@
 </head>
 <body>
   <h1>FORM<em>LINE</em> Admin</h1>
-  <p class="sub">Ingestion · Warm cache · Users · Custom matches · Status</p>
+  <p class="sub">Ingestion · Warm cache · Users · Custom matches · Daily message · Status</p>
 
   <div class="card">
     <h3>Admin Key</h3>
@@ -205,6 +205,21 @@
     <button id="btnWarm">Warm Analysis Cache</button>
     <button id="btnClear" class="danger">Clear Analysis Cache</button>
     <button id="btnRefresh">Refresh Status &amp; Users</button>
+  </div>
+
+  <!-- ══════════════════════════════════════════ -->
+  <!-- DAILY MESSAGE -->
+  <!-- ══════════════════════════════════════════ -->
+  <div class="card">
+    <h3>Daily Message</h3>
+    <p style="font-size:12px;color:#5A6474;margin:0 0 10px;">
+      Shown on the Matches page. Only one message is active at a time — saving replaces the old one.
+    </p>
+    <input id="dmHeading" placeholder="Heading (e.g. Today's Value Picks)" />
+    <textarea id="dmBody" placeholder="Body — write your daily message here…" style="min-height:110px;"></textarea>
+    <button id="btnSaveDM">Save / Update Daily Message</button>
+    <button id="btnDeleteDM" class="danger">Delete Daily Message</button>
+    <div id="dmStatus" style="font-size:12px;color:#5A6474;margin-top:8px;">No message loaded.</div>
   </div>
 
   <!-- ══════════════════════════════════════════ -->
@@ -394,6 +409,53 @@
       log('Refreshing...');
       refresh();
       loadUsers();
+      loadDailyMessage();
+    };
+
+    // ═══════════════════════════════════════════
+    // DAILY MESSAGE
+    // ═══════════════════════════════════════════
+    async function loadDailyMessage() {
+      const statusEl = document.getElementById('dmStatus');
+      try {
+        const data = await call('/daily-message');
+        if (!data || !data.heading) {
+          statusEl.textContent = 'No message set.';
+          document.getElementById('dmHeading').value = '';
+          document.getElementById('dmBody').value = '';
+          return;
+        }
+        document.getElementById('dmHeading').value = data.heading || '';
+        document.getElementById('dmBody').value = data.body || '';
+        statusEl.textContent =
+          'Current message updated: ' +
+          new Date(data.updated_at).toLocaleString();
+      } catch (e) {
+        statusEl.textContent = 'Enter admin key to load.';
+      }
+    }
+
+    document.getElementById('btnSaveDM').onclick = async () => {
+      const heading = document.getElementById('dmHeading').value.trim();
+      const body = document.getElementById('dmBody').value.trim();
+      if (!heading || !body) {
+        log('Enter heading and body for daily message');
+        return;
+      }
+      try {
+        await call('/daily-message', 'PUT', { heading, body });
+        log('Daily message saved');
+        loadDailyMessage();
+      } catch (e) { log('ERROR: ' + e.message); }
+    };
+
+    document.getElementById('btnDeleteDM').onclick = async () => {
+      if (!confirm('Delete the daily message?')) return;
+      try {
+        await call('/daily-message', 'DELETE');
+        log('Daily message deleted');
+        loadDailyMessage();
+      } catch (e) { log('ERROR: ' + e.message); }
     };
 
     // ═══════════════════════════════════════════
@@ -473,6 +535,7 @@
     setInterval(refresh, 10000);
     refresh();
     loadUsers();
+    loadDailyMessage();
     loadCustomMatches();
   </script>
 </body>
