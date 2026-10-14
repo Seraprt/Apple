@@ -1,7 +1,8 @@
 const Match = require('../models/Match');
-const Team = require('../models/Teams');                  // ← FIXED
+const Team = require('../models/Teams');
 const MatchAnalysis = require('../models/MatchAnalysis');
 const { analyzeMatch } = require('./predictionEngine');
+const { buildDetailExtras } = require('./matchDetail');
 
 async function warmAnalysisCache(daysAhead = 14) {
   const now = new Date();
@@ -38,6 +39,20 @@ async function warmAnalysisCache(daysAhead = 14) {
     try {
       const result = await analyzeMatch(m, home, away);
 
+      // Build detail-page extras (form, h2h, splits, factor bars)
+      let extras = {};
+      try {
+        extras = await buildDetailExtras(
+          m,
+          home,
+          away,
+          result.home_factors,
+          result.away_factors
+        );
+      } catch (err) {
+        console.error(`detail extras error for match ${m._id}:`, err.message);
+      }
+
       await MatchAnalysis.updateOne(
         { match_id: String(m._id) },
         {
@@ -69,6 +84,16 @@ async function warmAnalysisCache(daysAhead = 14) {
             reason_short: result.reason_short,
             reasons: result.reasons,
             markets: result.markets,
+
+            // ── PR 1 extensions ──
+            markets_full: result.markets_full || {},
+            correct_score_grid: result.correct_score_grid || [],
+            handicap_highlights: result.handicap_highlights || {},
+
+            form_data: extras.form_data || {},
+            h2h_data: extras.h2h_data || [],
+            splits: extras.splits || {},
+            factor_bars: extras.factor_bars || [],
 
             updated_at: new Date(),
           },

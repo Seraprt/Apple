@@ -4,6 +4,7 @@ const Match = require('../models/Match');
 const { normalizeLeague } = require('./leagues');
 
 const FOOTBALL_API = 'https://api.football-data.org/v4';
+
 const COMPETITION_TO_SPORT_KEY = {
   PL: 'soccer_epl',
   PD: 'soccer_spain_la_liga',
@@ -23,6 +24,17 @@ const COMPETITION_TO_SPORT_KEY = {
 const LEAGUE_AVG_HOME = 1.35;
 const LEAGUE_AVG_AWAY = 1.05;
 const ALPHA = 0.2;
+
+// ── Ingestion config ──
+const PAST_DAYS = parseInt(process.env.INGEST_PAST_DAYS || '2000', 10); // 2000 by default
+const PAST_CHUNK_DAYS = 10;       // smaller chunks = more reliable under free-tier caps
+const FUTURE_DAYS = 20;
+const FUTURE_CHUNK_DAYS = 7;
+
+// football-data.org free tier = 10 req/min → 6.5s between requests is safe
+const REQUEST_DELAY_MS = 6500;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ── Team create/update helper ──
 async function getOrCreateTeam(teamData, competitionName) {
@@ -51,7 +63,6 @@ async function getOrCreateTeam(teamData, competitionName) {
       external_id: String(teamData.id || ''),
     });
   } else {
-    // Always keep league in sync — teams get promoted/relegated each season
     const updates = {};
     if (crest && !team.logo) updates.logo = crest;
     if (short && !team.short) updates.short = short;
@@ -109,24 +120,26 @@ async function updateRatings(home, away, homeGoals, awayGoals) {
   );
 }
 
-// ── Fetch matches for a date range ──
-async function fetchRange(dateFrom, dateTo) {
+// ── Fetch matches for a date range, with retry on 429 ──
+async function fetchRange(dateFrom, dateTo, attempt = 0) {
   const url = `${FOOTBALL_API}/matches`;
   const headers = { 'X-Auth-Token': process.env.FOOTBALL_API_KEY };
   try {
     const { data } = await axios.get(url, {
       headers,
       params: { dateFrom, dateTo },
-      timeout: 20000,
+      timeout: 30000,
     });
     return data.matches || [];
   } catch (err) {
-    if (err.response?.status === 429) {
-      console.warn('Rate limit — waiting 10s');
-      await new Promise((r) => setTimeout(r, 10000));
-      return [];
+    const status = err.response?.status;
+    if (status === 429 && attempt < 3) {
+      const wait = 15000 * (attempt + 1);
+      console.warn(`Rate limit hit. Retry in ${wait / 1000}s...`);
+      await sleep(wait);
+      return fetchRange(dateFrom, dateTo, attempt + 1);
     }
-    console.error('fetch error:', err.message);
+    console.error(`fetch error [${dateFrom} → ${dateTo}]: ${status || err.message}`);
     return [];
   }
 }
@@ -162,15 +175,21 @@ async function storeMatches(matches) {
         home_goals: homeGoals,
         away_goals: awayGoals,
       });
+
+      // Only apply rating updates for NEW finished matches
+      if (finished && homeGoals !== null && awayGoals !== null) {
+        await updateRatings(home, away, homeGoals, awayGoals);
+      }
     } else if (finished && existing.home_goals === null) {
       existing.home_goals = homeGoals;
       existing.away_goals = awayGoals;
       await existing.save();
-    }
 
-    if (finished && homeGoals !== null && awayGoals !== null) {
+      // Was pending → now finished: apply ratings now
       await updateRatings(home, away, homeGoals, awayGoals);
     }
+    // If existing and already had goals, do nothing (avoid double-counting ratings)
+
     stored++;
   }
   return stored;
@@ -178,32 +197,51 @@ async function storeMatches(matches) {
 
 // ── Main ingestion ──
 async function runIngestion() {
-  console.log('🚀 Formline ingestion started');
+  console.log(`🚀 Formline ingestion started — past ${PAST_DAYS} days`);
   const now = new Date();
   let total = 0;
 
-  // Past 300 days (10-day chunks)
-  for (let i = 0; i < 300; i += 10) {
-    const start = new Date(now.getTime() - (300 - i) * 24 * 60 * 60 * 1000);
-    const end = new Date(start.getTime() + 10 * 24 * 60 * 60 * 1000);
+  const pastChunks = Math.ceil(PAST_DAYS / PAST_CHUNK_DAYS);
+  const futureChunks = Math.ceil(FUTURE_DAYS / FUTURE_CHUNK_DAYS);
+  const totalChunks = pastChunks + futureChunks;
+  const estMinutes = ((totalChunks * REQUEST_DELAY_MS) / 60000).toFixed(1);
+
+  console.log(`📊 ${totalChunks} chunks total — estimated ~${estMinutes} minutes (rate-limit limited)`);
+
+  // ── Past ──
+  for (let i = 0; i < PAST_DAYS; i += PAST_CHUNK_DAYS) {
+    const start = new Date(now.getTime() - (PAST_DAYS - i) * 86400000);
+    const end = new Date(start.getTime() + PAST_CHUNK_DAYS * 86400000);
     const df = start.toISOString().slice(0, 10);
     const dt = end.toISOString().slice(0, 10);
-    console.log(`  Past ${df} → ${dt}`);
+
+    const chunkNum = Math.floor(i / PAST_CHUNK_DAYS) + 1;
+    console.log(`  [${chunkNum}/${totalChunks}] Past ${df} → ${dt}`);
+
     const matches = await fetchRange(df, dt);
-    total += await storeMatches(matches);
-    await new Promise((r) => setTimeout(r, 500));
+    const stored = await storeMatches(matches);
+    total += stored;
+    console.log(`      stored/updated ${stored}`);
+
+    await sleep(REQUEST_DELAY_MS);
   }
 
-  // Future 20 days (7-day chunks)
-  for (let i = 0; i < 20; i += 7) {
-    const start = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
-    const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+  // ── Future ──
+  for (let i = 0; i < FUTURE_DAYS; i += FUTURE_CHUNK_DAYS) {
+    const start = new Date(now.getTime() + i * 86400000);
+    const end = new Date(start.getTime() + FUTURE_CHUNK_DAYS * 86400000);
     const df = start.toISOString().slice(0, 10);
     const dt = end.toISOString().slice(0, 10);
-    console.log(`  Future ${df} → ${dt}`);
+
+    const chunkNum = Math.floor((PAST_DAYS + i) / PAST_CHUNK_DAYS) + 1;
+    console.log(`  [${chunkNum}/${totalChunks}] Future ${df} → ${dt}`);
+
     const matches = await fetchRange(df, dt);
-    total += await storeMatches(matches);
-    await new Promise((r) => setTimeout(r, 500));
+    const stored = await storeMatches(matches);
+    total += stored;
+    console.log(`      stored/updated ${stored}`);
+
+    await sleep(REQUEST_DELAY_MS);
   }
 
   console.log(`✅ Ingestion done. ${total} matches stored/updated.`);
