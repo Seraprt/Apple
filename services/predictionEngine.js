@@ -1,10 +1,5 @@
-// ══════════════════════════════════════════════
 // services/predictionEngine.js
-// Mirrors the Python engine + Formline enhancements
-// Extended: DNB, Odd/Even, Team Totals, Clean Sheets, Win To Nil,
-//           Winning Margin, Score First, Result+BTTS, BTTS+O/U,
-//           Correct Score grid, Handicap highlights
-// ══════════════════════════════════════════════
+// Smarter version: opponent-adjusted home/away ratings + Dixon-Coles + factor-adjusted lambdas
 
 const {
   computeMatchFactors,
@@ -30,6 +25,10 @@ const LEAGUE_AVG_HOME = 1.35;
 const LEAGUE_AVG_AWAY = 1.05;
 const NEUTRAL_BASELINE = 1.20;
 
+// Dixon-Coles parameters (classic values work well)
+const DC_RHO = -0.13;   // negative correlation for low scores
+const DC_TAU = 0.01;    // small time-decay if you ever want it
+
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 function describeAttack(v) {
@@ -47,7 +46,6 @@ function describeDefence(v) {
   return 'very weak';
 }
 
-// Markets we never surface as "Best pick" (they exist in the grid but are boring/too-safe)
 const EXCLUDED_FROM_BEST = new Set([
   'under_0.5', 'over_5.5', 'under_5.5',
   'over_6.5', 'under_6.5', 'over_7.5', 'under_7.5',
@@ -76,27 +74,54 @@ const SECONDARY_CANDIDATES = [
 ];
 
 // ══════════════════════════════════════════════
-// Poisson helpers
+// Poisson + Dixon-Coles helpers
 // ══════════════════════════════════════════════
 function poissonPmf(k, lambda) {
+  if (lambda <= 0) return k === 0 ? 1 : 0;
   let p = Math.exp(-lambda);
   for (let i = 1; i <= k; i++) p *= lambda / i;
   return p;
 }
+
 function poissonCdf(k, lambda) {
   let sum = 0;
   for (let i = 0; i <= k; i++) sum += poissonPmf(i, lambda);
   return sum;
 }
 
+// Dixon-Coles tau correction for low scores
+function dixonColesTau(h, a, lambdaH, lambdaA, rho = DC_RHO) {
+  if (h === 0 && a === 0) return 1 - lambdaH * lambdaA * rho;
+  if (h === 0 && a === 1) return 1 + lambdaH * rho;
+  if (h === 1 && a === 0) return 1 + lambdaA * rho;
+  if (h === 1 && a === 1) return 1 - rho;
+  return 1;
+}
+
 // ══════════════════════════════════════════════
-// xG (unchanged behaviour)
+// xG with home/away ratings + factor adjustment
 // ══════════════════════════════════════════════
-function computeXg(homeTeam, awayTeam, weatherMult = 1.0, neutral = false) {
-  const homeAttack = homeTeam.attack_rating ?? 1.0;
-  const homeDefence = homeTeam.defence_rating ?? 1.0;
-  const awayAttack = awayTeam.attack_rating ?? 1.0;
-  const awayDefence = awayTeam.defence_rating ?? 1.0;
+function computeXg(homeTeam, awayTeam, weatherMult = 1.0, neutral = false, factorAdj = 0) {
+  // Prefer the new home/away ratings, fall back to overall
+  const homeAttack = neutral
+    ? ((homeTeam.attack_rating_home ?? homeTeam.attack_rating ?? 1) +
+       (homeTeam.attack_rating_away ?? homeTeam.attack_rating ?? 1)) / 2
+    : (homeTeam.attack_rating_home ?? homeTeam.attack_rating ?? 1);
+
+  const homeDefence = neutral
+    ? ((homeTeam.defence_rating_home ?? homeTeam.defence_rating ?? 1) +
+       (homeTeam.defence_rating_away ?? homeTeam.defence_rating ?? 1)) / 2
+    : (homeTeam.defence_rating_home ?? homeTeam.defence_rating ?? 1);
+
+  const awayAttack = neutral
+    ? ((awayTeam.attack_rating_home ?? awayTeam.attack_rating ?? 1) +
+       (awayTeam.attack_rating_away ?? awayTeam.attack_rating ?? 1)) / 2
+    : (awayTeam.attack_rating_away ?? awayTeam.attack_rating ?? 1);
+
+  const awayDefence = neutral
+    ? ((awayTeam.defence_rating_home ?? awayTeam.defence_rating ?? 1) +
+       (awayTeam.defence_rating_away ?? awayTeam.defence_rating ?? 1)) / 2
+    : (awayTeam.defence_rating_away ?? awayTeam.defence_rating ?? 1);
 
   const homeBaseline = neutral ? NEUTRAL_BASELINE : LEAGUE_AVG_HOME;
   const awayBaseline = neutral ? NEUTRAL_BASELINE : LEAGUE_AVG_AWAY;
@@ -104,53 +129,48 @@ function computeXg(homeTeam, awayTeam, weatherMult = 1.0, neutral = false) {
   let homeXg = homeBaseline * homeAttack * awayDefence;
   let awayXg = awayBaseline * awayAttack * homeDefence;
 
+  // Tier adjustment
   const homeTier = getTierFactor(homeTeam.league);
   const awayTier = getTierFactor(awayTeam.league);
   if (homeTier !== awayTier) {
     const tierDiff = homeTier - awayTier;
-    homeXg *= 1 + tierDiff * 0.5;
-    awayXg *= 1 - tierDiff * 0.5;
+    homeXg *= 1 + tierDiff * 0.45;
+    awayXg *= 1 - tierDiff * 0.45;
   }
 
+  // Weather
   homeXg *= weatherMult;
   awayXg *= weatherMult;
 
+  // Factor signal now directly nudges the lambdas (much cleaner than post-hoc probability shift)
+  // factorAdj is roughly in [-0.4 … +0.4]
+  const adj = clamp(factorAdj * 0.22, -0.28, 0.28);
+  homeXg *= 1 + adj;
+  awayXg *= 1 - adj;
+
   return {
-    homeXg: clamp(homeXg, 0.3, 4.5),
-    awayXg: clamp(awayXg, 0.3, 4.5),
+    homeXg: clamp(homeXg, 0.25, 4.2),
+    awayXg: clamp(awayXg, 0.25, 4.2),
   };
 }
 
 // ══════════════════════════════════════════════
-// 1X2 signal (unchanged)
+// 1X2 signal (used only to produce factorAdj)
 // ══════════════════════════════════════════════
-function computeProbabilities(homeFactors, awayFactors, weatherMult) {
+function computeFactorSignal(homeFactors, awayFactors, weatherMult) {
   let scoreDiff = 0;
   for (const key of Object.keys(WEIGHTS)) {
     if (key === 'weather') continue;
     const diff = (homeFactors[key] ?? 0.5) - (awayFactors[key] ?? 0.5);
     scoreDiff += WEIGHTS[key] * diff;
   }
-  if (weatherMult < 1.0) scoreDiff *= weatherMult - 0.1;
-  else if (weatherMult > 1.0) scoreDiff *= weatherMult + 0.1;
-
-  const scale = 1.8;
-  let homeWin = 1 / (1 + Math.exp(-scoreDiff * scale));
-  let awayWin = 1 / (1 + Math.exp(scoreDiff * scale));
-  let draw = 1 - homeWin - awayWin;
-  if (draw < 0) draw = 0;
-
-  const total = homeWin + draw + awayWin;
-  return {
-    homeWin: homeWin / total,
-    draw: draw / total,
-    awayWin: awayWin / total,
-    scoreDiff,
-  };
+  if (weatherMult < 1.0) scoreDiff *= weatherMult - 0.08;
+  else if (weatherMult > 1.0) scoreDiff *= weatherMult + 0.08;
+  return scoreDiff; // typically ~[-0.6 … 0.6]
 }
 
 // ══════════════════════════════════════════════
-// Confidence (unchanged)
+// Confidence
 // ══════════════════════════════════════════════
 function computeConfidence(homeFactors, awayFactors, scoreDiff) {
   const contributions = [];
@@ -163,32 +183,35 @@ function computeConfidence(homeFactors, awayFactors, scoreDiff) {
   const mean = contributions.reduce((a, b) => a + b, 0) / n;
   const variance = contributions.reduce((a, b) => a + (b - mean) ** 2, 0) / n;
   const stdDev = Math.sqrt(variance);
-  const agreement = 1 / (1 + stdDev);
-  const extremity = Math.min(1, Math.abs(scoreDiff) * 2);
-  return Math.min(1, 0.5 * agreement + 0.5 * extremity);
+  const agreement = 1 / (1 + stdDev * 1.8);
+  const extremity = Math.min(1, Math.abs(scoreDiff) * 1.7);
+  return clamp(0.42 * agreement + 0.58 * extremity, 0.15, 0.97);
 }
 
 // ══════════════════════════════════════════════
-// ALL MARKETS — extended
+// ALL MARKETS — with Dixon-Coles
 // ══════════════════════════════════════════════
 function computeAllMarketProbs(homeXg, awayXg) {
   const probs = {};
-
-  // Full 11x11 grid, normalized
   const grid = [];
   let gridSum = 0;
+
+  // Build joint distribution with Dixon-Coles correction
   for (let h = 0; h <= 10; h++) {
     grid[h] = [];
     for (let a = 0; a <= 10; a++) {
-      grid[h][a] = poissonPmf(h, homeXg) * poissonPmf(a, awayXg);
+      const raw = poissonPmf(h, homeXg) * poissonPmf(a, awayXg);
+      const tau = dixonColesTau(h, a, homeXg, awayXg);
+      grid[h][a] = raw * tau;
       gridSum += grid[h][a];
     }
   }
+  // Normalise
   for (let h = 0; h <= 10; h++) {
     for (let a = 0; a <= 10; a++) grid[h][a] /= gridSum;
   }
 
-  // ── 1X2 ──
+  // 1X2
   let homeWin = 0, draw = 0, awayWin = 0;
   for (let h = 0; h <= 10; h++) {
     for (let a = 0; a <= 10; a++) {
@@ -205,12 +228,12 @@ function computeAllMarketProbs(homeXg, awayXg) {
   probs['X2'] = draw + awayWin;
   probs['12'] = homeWin + awayWin;
 
-  // ── Draw No Bet ──
+  // Draw No Bet
   const dnbTotal = homeWin + awayWin;
   probs.dnb_home = dnbTotal > 0 ? homeWin / dnbTotal : 0.5;
   probs.dnb_away = dnbTotal > 0 ? awayWin / dnbTotal : 0.5;
 
-  // ── Goals O/U ──
+  // Goals O/U
   for (const t of [0.5, 1.5, 2.5, 3.5, 4.5]) {
     let under = 0;
     for (let h = 0; h <= 10; h++) {
@@ -222,13 +245,15 @@ function computeAllMarketProbs(homeXg, awayXg) {
     probs[`over_${t}`] = 1 - under;
   }
 
-  // ── BTTS ──
-  const hs = 1 - poissonPmf(0, homeXg);
-  const as = 1 - poissonPmf(0, awayXg);
-  probs.btts_yes = hs * as;
-  probs.btts_no = 1 - probs.btts_yes;
+  // BTTS
+  let bttsYes = 0;
+  for (let h = 1; h <= 10; h++) {
+    for (let a = 1; a <= 10; a++) bttsYes += grid[h][a];
+  }
+  probs.btts_yes = bttsYes;
+  probs.btts_no = 1 - bttsYes;
 
-  // ── Odd / Even ──
+  // Odd / Even
   let odd = 0, even = 0;
   for (let h = 0; h <= 10; h++) {
     for (let a = 0; a <= 10; a++) {
@@ -239,32 +264,36 @@ function computeAllMarketProbs(homeXg, awayXg) {
   probs.odd = odd;
   probs.even = even;
 
-  // ── Team totals ──
+  // Team totals
   for (const t of [0.5, 1.5, 2.5]) {
-    probs[`home_over_${t}`] = 1 - poissonCdf(t, homeXg);
-    probs[`home_under_${t}`] = poissonCdf(t, homeXg);
-    probs[`away_over_${t}`] = 1 - poissonCdf(t, awayXg);
-    probs[`away_under_${t}`] = poissonCdf(t, awayXg);
+    probs[`home_over_${t}`] = 1 - poissonCdf(Math.floor(t), homeXg);
+    probs[`home_under_${t}`] = poissonCdf(Math.floor(t), homeXg);
+    probs[`away_over_${t}`] = 1 - poissonCdf(Math.floor(t), awayXg);
+    probs[`away_under_${t}`] = poissonCdf(Math.floor(t), awayXg);
   }
 
-  // ── Any team 2.5+ ──
+  // Any team 2.5+
   const pHomeLess3 = poissonCdf(2, homeXg);
   const pAwayLess3 = poissonCdf(2, awayXg);
   probs['any_team_over_2.5_goals'] = 1 - pHomeLess3 * pAwayLess3;
   probs['any_team_under_2.5_goals'] = pHomeLess3 * pAwayLess3;
 
-  // ── Clean sheets ──
-  probs.home_clean_sheet = poissonPmf(0, awayXg);
-  probs.away_clean_sheet = poissonPmf(0, homeXg);
+  // Clean sheets
+  probs.home_clean_sheet = 0;
+  probs.away_clean_sheet = 0;
+  for (let h = 0; h <= 10; h++) {
+    probs.home_clean_sheet += grid[h][0];
+    probs.away_clean_sheet += grid[0][h];
+  }
 
-  // ── Win to nil ──
+  // Win to nil
   let hwtl = 0, awtl = 0;
   for (let h = 1; h <= 10; h++) hwtl += grid[h][0];
   for (let a = 1; a <= 10; a++) awtl += grid[0][a];
   probs.home_win_to_nil = hwtl;
   probs.away_win_to_nil = awtl;
 
-  // ── Winning margin ──
+  // Winning margin
   let hw1 = 0, hw2 = 0, hw3p = 0;
   let aw1 = 0, aw2 = 0, aw3p = 0;
   for (let h = 0; h <= 10; h++) {
@@ -286,8 +315,8 @@ function computeAllMarketProbs(homeXg, awayXg) {
   probs.away_win_by_2 = aw2;
   probs.away_win_by_3plus = aw3p;
 
-  // ── Team to score first (exponential first-goal model) ──
-  const pNoGoals = poissonPmf(0, homeXg) * poissonPmf(0, awayXg);
+  // Team to score first (exponential approximation)
+  const pNoGoals = grid[0][0];
   const firstGoalTotal = 1 - pNoGoals;
   const totalXg = homeXg + awayXg;
   if (totalXg > 0) {
@@ -299,7 +328,7 @@ function computeAllMarketProbs(homeXg, awayXg) {
   }
   probs.no_goals = pNoGoals;
 
-  // ── Result + BTTS ──
+  // Result + BTTS
   let hw_btts_yes = 0, d_btts_yes = 0, aw_btts_yes = 0;
   for (let h = 1; h <= 10; h++) {
     for (let a = 1; a <= 10; a++) {
@@ -316,7 +345,7 @@ function computeAllMarketProbs(homeXg, awayXg) {
   probs.away_win_btts_yes = aw_btts_yes;
   probs.away_win_btts_no = awayWin - aw_btts_yes;
 
-  // ── BTTS + O/U 2.5 ──
+  // BTTS + O/U 2.5
   let bttsOver25 = 0, bttsUnder25 = 0;
   for (let h = 1; h <= 10; h++) {
     for (let a = 1; a <= 10; a++) {
@@ -329,7 +358,7 @@ function computeAllMarketProbs(homeXg, awayXg) {
   probs.no_btts_and_over_2_5 = probs.over_2_5 - bttsOver25;
   probs.no_btts_and_under_2_5 = probs.under_2_5 - bttsUnder25;
 
-  // ── Handicaps (existing logic, preserved) ──
+  // Handicaps
   for (const hcap of [-3, -2, -1.5, -1, 1, 1.5, 2, 3]) {
     if (hcap < 0) {
       let p = 0;
@@ -356,32 +385,35 @@ function computeAllMarketProbs(homeXg, awayXg) {
 }
 
 // ══════════════════════════════════════════════
-// Correct score grid (top N)
+// Correct score grid + most likely
 // ══════════════════════════════════════════════
 function correctScoreGrid(homeXg, awayXg, top = 20) {
   const entries = [];
   for (let h = 0; h <= 7; h++) {
     for (let a = 0; a <= 7; a++) {
+      const raw = poissonPmf(h, homeXg) * poissonPmf(a, awayXg);
+      const tau = dixonColesTau(h, a, homeXg, awayXg);
       entries.push({
         score: `${h}-${a}`,
         home: h,
         away: a,
-        probability: +(poissonPmf(h, homeXg) * poissonPmf(a, awayXg)).toFixed(4),
+        probability: +(raw * tau).toFixed(5),
       });
     }
   }
+  // We need to re-normalise because of tau
+  const sum = entries.reduce((s, e) => s + e.probability, 0);
+  entries.forEach(e => e.probability = +(e.probability / sum).toFixed(4));
   entries.sort((x, y) => y.probability - x.probability);
   return entries.slice(0, top);
 }
 
-// ══════════════════════════════════════════════
-// Most likely single score
-// ══════════════════════════════════════════════
 function mostLikelyScore(homeXg, awayXg) {
   let best = '0-0', bestP = 0;
   for (let h = 0; h <= 7; h++) {
     for (let a = 0; a <= 7; a++) {
-      const p = poissonPmf(h, homeXg) * poissonPmf(a, awayXg);
+      const raw = poissonPmf(h, homeXg) * poissonPmf(a, awayXg);
+      const p = raw * dixonColesTau(h, a, homeXg, awayXg);
       if (p > bestP) { bestP = p; best = `${h}-${a}`; }
     }
   }
@@ -389,18 +421,22 @@ function mostLikelyScore(homeXg, awayXg) {
 }
 
 // ══════════════════════════════════════════════
-// Best market (curated list, unchanged semantics)
+// Best market (now edge-oriented)
 // ══════════════════════════════════════════════
 function pickBestMarket(probs, confidence, context = {}) {
   let bestMarket = null;
-  let bestScore = 0;
+  let bestScore = -Infinity;
   let bestProb = 0;
 
   for (const [market, prob] of Object.entries(probs)) {
     if (market.startsWith('correct_')) continue;
     if (EXCLUDED_FROM_BEST.has(market)) continue;
-    if (context.is_derby && ['home_win', 'away_win'].includes(market) && prob < 0.5) continue;
-    const score = prob * confidence;
+    if (context.is_derby && ['home_win', 'away_win'].includes(market) && prob < 0.48) continue;
+
+    // Score = probability × confidence × slight preference for higher-probability markets
+    // (when you later have real odds you can replace this with true edge)
+    const score = prob * confidence * (0.85 + 0.15 * prob);
+
     if (score > bestScore) {
       bestScore = score;
       bestMarket = market;
@@ -410,10 +446,7 @@ function pickBestMarket(probs, confidence, context = {}) {
   return { bestMarket, bestProb, bestScore };
 }
 
-// ══════════════════════════════════════════════
-// Secondary market (unchanged)
-// ══════════════════════════════════════════════
-function pickSecondaryMarket(probs, bestMarket, likelyResult, context = {}, minProb = 0.6) {
+function pickSecondaryMarket(probs, bestMarket, likelyResult, context = {}, minProb = 0.58) {
   let candidates = [...SECONDARY_CANDIDATES];
   if (likelyResult === 'home') candidates = candidates.filter(([m]) => m !== 'X2');
   else if (likelyResult === 'away') candidates = candidates.filter(([m]) => m !== '1X');
@@ -424,14 +457,14 @@ function pickSecondaryMarket(probs, bestMarket, likelyResult, context = {}, minP
     if (key === bestMarket) continue;
     const prob = probs[key];
     if (prob == null || prob < minProb) continue;
-    if (context.is_derby && ['home_win', 'away_win'].includes(key) && prob < 0.5) continue;
+    if (context.is_derby && ['home_win', 'away_win'].includes(key) && prob < 0.48) continue;
     if (!best || prob > best.prob) best = { market: key, label, prob };
   }
   return best;
 }
 
 // ══════════════════════════════════════════════
-// Reasons (unchanged)
+// Reasons (unchanged logic, minor polish)
 // ══════════════════════════════════════════════
 function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, context) {
   const reasons = [];
@@ -470,10 +503,10 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
     });
   }
 
-  const hAtk = homeTeam.attack_rating ?? 1.0;
-  const hDef = homeTeam.defence_rating ?? 1.0;
-  const aAtk = awayTeam.attack_rating ?? 1.0;
-  const aDef = awayTeam.defence_rating ?? 1.0;
+  const hAtk = homeTeam.attack_rating_home ?? homeTeam.attack_rating ?? 1.0;
+  const hDef = homeTeam.defence_rating_home ?? homeTeam.defence_rating ?? 1.0;
+  const aAtk = awayTeam.attack_rating_away ?? awayTeam.attack_rating ?? 1.0;
+  const aDef = awayTeam.defence_rating_away ?? awayTeam.defence_rating ?? 1.0;
   const hEdge = hAtk - aDef;
   const aEdge = aAtk - hDef;
 
@@ -482,7 +515,7 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
       tone: 'good', weight: clamp(hEdge * 1.7, 0.3, 0.95),
       tag: 'Attack vs defence',
       title: `${homeTeam.name} attack outmatches the ${awayTeam.name} defence`,
-      text: `${hs} bring a ${describeAttack(hAtk)} attack against a ${describeDefence(aDef)} back line. Expected goal contribution: +${(hEdge * 1.9).toFixed(2)} xG.`,
+      text: `${hs} bring a ${describeAttack(hAtk)} attack against a ${describeDefence(aDef)} back line.`,
     });
   }
   if (aEdge > 0.05) {
@@ -490,7 +523,7 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
       tone: 'warn', weight: clamp(aEdge * 1.7, 0.3, 0.95),
       tag: 'Counter threat',
       title: `${awayTeam.name} can hurt ${homeTeam.name} going forward`,
-      text: `${as_} bring a ${describeAttack(aAtk)} attack against a ${describeDefence(hDef)} back line. Expect them to create chances.`,
+      text: `${as_} bring a ${describeAttack(aAtk)} attack against a ${describeDefence(hDef)} back line.`,
     });
   }
 
@@ -548,7 +581,7 @@ function buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, conte
 }
 
 // ══════════════════════════════════════════════
-// Analyze a match — extended return
+// Analyze a match
 // ══════════════════════════════════════════════
 async function analyzeMatch(match, homeTeam, awayTeam) {
   const context = getMatchContext(match);
@@ -562,38 +595,30 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
     match.date
   );
 
-  const { scoreDiff } = computeProbabilities(homeFactors, awayFactors, weatherMult);
+  const scoreDiff = computeFactorSignal(homeFactors, awayFactors, weatherMult);
   const confidence = computeConfidence(homeFactors, awayFactors, scoreDiff);
 
-  const { homeXg, awayXg } = computeXg(homeTeam, awayTeam, weatherMult, context.neutral === true);
+  // Factor signal now directly influences the expected goals
+  const { homeXg, awayXg } = computeXg(
+    homeTeam,
+    awayTeam,
+    weatherMult,
+    context.neutral === true,
+    scoreDiff
+  );
+
   const probs = computeAllMarketProbs(homeXg, awayXg);
 
-  const poissonHome = probs.home_win;
-  const poissonDraw = probs.draw;
-  const poissonAway = probs.away_win;
+  // Final 1X2 probabilities come from the (Dixon-Coles) grid
+  let homeWin = probs.home_win;
+  let draw = probs.draw;
+  let awayWin = probs.away_win;
 
+  // Tiny safety: if most-likely score is a draw but draw prob is very low, gently lift it
   const correctScore = mostLikelyScore(homeXg, awayXg);
-
-  // Gentle blend toward favourite
-  const signal = Math.tanh(scoreDiff * 1.5);
-  const shift = signal * 0.05;
-  let homeWin = poissonHome;
-  let awayWin = poissonAway;
-  let draw = poissonDraw;
-
-  if (shift > 0) {
-    const takeFrom = Math.min(draw * 0.4, shift);
-    homeWin += takeFrom;
-    draw -= takeFrom;
-  } else if (shift < 0) {
-    const takeFrom = Math.min(draw * 0.4, -shift);
-    awayWin += takeFrom;
-    draw -= takeFrom;
-  }
-
   const [csH, csA] = correctScore.split('-').map(Number);
-  if (csH === csA && draw < 0.20) {
-    const need = 0.20 - draw;
+  if (csH === csA && draw < 0.18) {
+    const need = 0.18 - draw;
     draw += need;
     const total = homeWin + awayWin;
     if (total > 0) {
@@ -613,7 +638,7 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
   if (homeWin > awayWin && homeWin > draw) likelyResult = 'home';
   else if (awayWin > homeWin && awayWin > draw) likelyResult = 'away';
 
-  const secondary = pickSecondaryMarket(probs, bestMarket, likelyResult, context, 0.6);
+  const secondary = pickSecondaryMarket(probs, bestMarket, likelyResult, context, 0.58);
   const reasons = buildReasons(homeTeam, awayTeam, homeFactors, awayFactors, probs, context);
 
   const pickText =
@@ -624,7 +649,6 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
   const marketLabel = formatMarketLabel(bestMarket);
   const over25 = probs['over_2.5'] || 0;
 
-  // ── Handicap highlights (+2/+3 both sides, prob + confidence) ──
   const conf = +confidence.toFixed(3);
   const handicapHighlights = {
     home_plus_2: { probability: +(probs['home_+2'] ?? 0).toFixed(4), confidence: conf },
@@ -637,7 +661,7 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
     home_win_prob: +homeWin.toFixed(4),
     draw_prob: +draw.toFixed(4),
     away_win_prob: +awayWin.toFixed(4),
-    confidence: +confidence.toFixed(3),
+    confidence: conf,
     home_xg: +homeXg.toFixed(2),
     away_xg: +awayXg.toFixed(2),
     predicted_correct_score: correctScore,
@@ -660,8 +684,6 @@ async function analyzeMatch(match, homeTeam, awayTeam) {
     ],
     home_factors: homeFactors,
     away_factors: awayFactors,
-
-    // ── Extended (PR 1 additions) ──
     markets_full: probs,
     correct_score_grid: correctScoreGrid(homeXg, awayXg, 20),
     handicap_highlights: handicapHighlights,
@@ -707,7 +729,7 @@ function formatMarketLabel(market) {
 }
 
 // ══════════════════════════════════════════════
-// Compare teams (unchanged, but now includes extended fields)
+// Compare teams
 // ══════════════════════════════════════════════
 async function compareTeams(home, away, neutral = false) {
   const fakeMatch = {
@@ -727,6 +749,10 @@ async function compareTeams(home, away, neutral = false) {
       league: home.league,
       attack_rating: home.attack_rating ?? 1.0,
       defence_rating: home.defence_rating ?? 1.0,
+      attack_rating_home: home.attack_rating_home ?? home.attack_rating ?? 1.0,
+      attack_rating_away: home.attack_rating_away ?? home.attack_rating ?? 1.0,
+      defence_rating_home: home.defence_rating_home ?? home.defence_rating ?? 1.0,
+      defence_rating_away: home.defence_rating_away ?? home.defence_rating ?? 1.0,
       home_ppg: home.home_ppg ?? 1.5,
       away_ppg: home.away_ppg ?? 1.0,
     },
@@ -735,6 +761,10 @@ async function compareTeams(home, away, neutral = false) {
       league: away.league,
       attack_rating: away.attack_rating ?? 1.0,
       defence_rating: away.defence_rating ?? 1.0,
+      attack_rating_home: away.attack_rating_home ?? away.attack_rating ?? 1.0,
+      attack_rating_away: away.attack_rating_away ?? away.attack_rating ?? 1.0,
+      defence_rating_home: away.defence_rating_home ?? away.defence_rating ?? 1.0,
+      defence_rating_away: away.defence_rating_away ?? away.defence_rating ?? 1.0,
       home_ppg: away.home_ppg ?? 1.5,
       away_ppg: away.away_ppg ?? 1.0,
     },
@@ -750,7 +780,7 @@ module.exports = {
   correctScoreGrid,
   mostLikelyScore,
   pickBestMarket,
-  computeProbabilities,
+  computeFactorSignal,
   computeConfidence,
   buildReasons,
   formatMarketLabel,

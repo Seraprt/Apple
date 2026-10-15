@@ -1,3 +1,4 @@
+// services/ingestion.js
 const axios = require('axios');
 const Team = require('../models/Teams');
 const Match = require('../models/Match');
@@ -23,20 +24,23 @@ const COMPETITION_TO_SPORT_KEY = {
 
 const LEAGUE_AVG_HOME = 1.35;
 const LEAGUE_AVG_AWAY = 1.05;
-const ALPHA = 0.2;
 
-// ── Ingestion config ──
-const PAST_DAYS = parseInt(process.env.INGEST_PAST_DAYS || '2000', 10); // 2000 by default
-const PAST_CHUNK_DAYS = 10;       // smaller chunks = more reliable under free-tier caps
+// Learning rates
+const ALPHA_ATK = 0.18;   // attack reacts faster
+const ALPHA_DEF = 0.14;   // defence is more stable
+const PPG_ALPHA = 0.15;
+const K_ELO = 28;
+
+const PAST_DAYS = parseInt(process.env.INGEST_PAST_DAYS || '2000', 10);
+const PAST_CHUNK_DAYS = 10;
 const FUTURE_DAYS = 20;
 const FUTURE_CHUNK_DAYS = 7;
-
-// football-data.org free tier = 10 req/min → 6.5s between requests is safe
 const REQUEST_DELAY_MS = 6500;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-// ── Team create/update helper ──
+// ── Team create / update helper ──
 async function getOrCreateTeam(teamData, competitionName) {
   const name = teamData.name;
   if (!name) return null;
@@ -54,8 +58,14 @@ async function getOrCreateTeam(teamData, competitionName) {
       short,
       logo: crest,
       league: normalizedLeague,
+      // Overall (kept for backward compatibility)
       attack_rating: 1.0,
       defence_rating: 1.0,
+      // New home / away splits
+      attack_rating_home: 1.0,
+      attack_rating_away: 1.0,
+      defence_rating_home: 1.0,
+      defence_rating_away: 1.0,
       elo_rating: 1500,
       home_ppg: 1.5,
       away_ppg: 1.0,
@@ -67,60 +77,92 @@ async function getOrCreateTeam(teamData, competitionName) {
     if (crest && !team.logo) updates.logo = crest;
     if (short && !team.short) updates.short = short;
     if (normalizedLeague) updates.league = normalizedLeague;
+
+    // Backfill missing home/away ratings for older teams
+    if (team.attack_rating_home == null) updates.attack_rating_home = team.attack_rating || 1.0;
+    if (team.attack_rating_away == null) updates.attack_rating_away = team.attack_rating || 1.0;
+    if (team.defence_rating_home == null) updates.defence_rating_home = team.defence_rating || 1.0;
+    if (team.defence_rating_away == null) updates.defence_rating_away = team.defence_rating || 1.0;
+
     if (Object.keys(updates).length) {
       await Team.updateOne({ _id: team._id }, { $set: updates });
+      Object.assign(team, updates);
     }
   }
   return team;
 }
 
-// ── Update attack/defence + ELO + PPG ──
+// ── Smarter rating update (opponent-adjusted + home/away split) ──
 async function updateRatings(home, away, homeGoals, awayGoals) {
-  const homeObsAttack = homeGoals / LEAGUE_AVG_HOME;
-  const awayObsAttack = awayGoals / LEAGUE_AVG_AWAY;
-  const homeObsDefence = awayGoals / LEAGUE_AVG_HOME;
-  const awayObsDefence = homeGoals / LEAGUE_AVG_AWAY;
+  // Safety
+  const hAtkH = home.attack_rating_home ?? home.attack_rating ?? 1.0;
+  const hDefH = home.defence_rating_home ?? home.defence_rating ?? 1.0;
+  const aAtkA = away.attack_rating_away ?? away.attack_rating ?? 1.0;
+  const aDefA = away.defence_rating_away ?? away.defence_rating ?? 1.0;
 
-  const newHomeAttack = Math.max(0.3, Math.min(2.5, home.attack_rating * (1 - ALPHA) + homeObsAttack * ALPHA));
-  const newHomeDefence = Math.max(0.3, Math.min(2.5, home.defence_rating * (1 - ALPHA) + homeObsDefence * ALPHA));
-  const newAwayAttack = Math.max(0.3, Math.min(2.5, away.attack_rating * (1 - ALPHA) + awayObsAttack * ALPHA));
-  const newAwayDefence = Math.max(0.3, Math.min(2.5, away.defence_rating * (1 - ALPHA) + awayObsDefence * ALPHA));
+  // Opponent-adjusted observed performance
+  // Higher opponent defence → harder to score → bigger credit when you do
+  const homeObsAttack  = (homeGoals / LEAGUE_AVG_HOME) / Math.max(0.4, aDefA);
+  const awayObsAttack  = (awayGoals / LEAGUE_AVG_AWAY) / Math.max(0.4, hDefH);
+  const homeObsDefence = (awayGoals / LEAGUE_AVG_HOME) / Math.max(0.4, aAtkA);
+  const awayObsDefence = (homeGoals / LEAGUE_AVG_AWAY) / Math.max(0.4, hAtkH);
 
-  const K = 30;
+  // Update home team's HOME ratings
+  const newHomeAtkHome = clamp(hAtkH * (1 - ALPHA_ATK) + homeObsAttack * ALPHA_ATK, 0.30, 2.70);
+  const newHomeDefHome = clamp(hDefH * (1 - ALPHA_DEF) + homeObsDefence * ALPHA_DEF, 0.30, 2.70);
+
+  // Update away team's AWAY ratings
+  const newAwayAtkAway = clamp(aAtkA * (1 - ALPHA_ATK) + awayObsAttack * ALPHA_ATK, 0.30, 2.70);
+  const newAwayDefAway = clamp(aDefA * (1 - ALPHA_DEF) + awayObsDefence * ALPHA_DEF, 0.30, 2.70);
+
+  // Overall ratings = blend of home + away (kept for compatibility)
+  const newHomeAttack  = clamp((newHomeAtkHome + (home.attack_rating_away ?? 1.0)) / 2, 0.30, 2.70);
+  const newHomeDefence = clamp((newHomeDefHome + (home.defence_rating_away ?? 1.0)) / 2, 0.30, 2.70);
+  const newAwayAttack  = clamp(((away.attack_rating_home ?? 1.0) + newAwayAtkAway) / 2, 0.30, 2.70);
+  const newAwayDefence = clamp(((away.defence_rating_home ?? 1.0) + newAwayDefAway) / 2, 0.30, 2.70);
+
+  // ELO
   const expHome = 1 / (1 + Math.pow(10, (away.elo_rating - home.elo_rating) / 400));
-  const expAway = 1 - expHome;
   const homeResult = homeGoals > awayGoals ? 1 : homeGoals === awayGoals ? 0.5 : 0;
-  const awayResult = 1 - homeResult;
-  const newHomeElo = home.elo_rating + K * (homeResult - expHome);
-  const newAwayElo = away.elo_rating + K * (awayResult - expAway);
+  const newHomeElo = home.elo_rating + K_ELO * (homeResult - expHome);
+  const newAwayElo = away.elo_rating + K_ELO * ((1 - homeResult) - (1 - expHome));
 
-  const PPG_ALPHA = 0.15;
+  // PPG
   const homePts = homeGoals > awayGoals ? 3 : homeGoals === awayGoals ? 1 : 0;
-  const awayPts = awayGoals > homeGoals ? 3 : awayGoals === homeGoals ? 1 : 0;
-  const newHomePpg = Math.max(0, Math.min(3, home.home_ppg * (1 - PPG_ALPHA) + homePts * PPG_ALPHA));
-  const newAwayPpg = Math.max(0, Math.min(3, away.away_ppg * (1 - PPG_ALPHA) + awayPts * PPG_ALPHA));
+  const awayPts = 3 - homePts;
+  const newHomePpg = clamp(home.home_ppg * (1 - PPG_ALPHA) + homePts * PPG_ALPHA, 0, 3);
+  const newAwayPpg = clamp(away.away_ppg * (1 - PPG_ALPHA) + awayPts * PPG_ALPHA, 0, 3);
 
   await Team.updateOne(
     { _id: home._id },
-    { $set: {
-      attack_rating: newHomeAttack,
-      defence_rating: newHomeDefence,
-      elo_rating: newHomeElo,
-      home_ppg: newHomePpg,
-    }}
+    {
+      $set: {
+        attack_rating: newHomeAttack,
+        defence_rating: newHomeDefence,
+        attack_rating_home: newHomeAtkHome,
+        defence_rating_home: newHomeDefHome,
+        elo_rating: newHomeElo,
+        home_ppg: newHomePpg,
+      },
+    }
   );
+
   await Team.updateOne(
     { _id: away._id },
-    { $set: {
-      attack_rating: newAwayAttack,
-      defence_rating: newAwayDefence,
-      elo_rating: newAwayElo,
-      away_ppg: newAwayPpg,
-    }}
+    {
+      $set: {
+        attack_rating: newAwayAttack,
+        defence_rating: newAwayDefence,
+        attack_rating_away: newAwayAtkAway,
+        defence_rating_away: newAwayDefAway,
+        elo_rating: newAwayElo,
+        away_ppg: newAwayPpg,
+      },
+    }
   );
 }
 
-// ── Fetch matches for a date range, with retry on 429 ──
+// ── Fetch with retry ──
 async function fetchRange(dateFrom, dateTo, attempt = 0) {
   const url = `${FOOTBALL_API}/matches`;
   const headers = { 'X-Auth-Token': process.env.FOOTBALL_API_KEY };
@@ -176,7 +218,6 @@ async function storeMatches(matches) {
         away_goals: awayGoals,
       });
 
-      // Only apply rating updates for NEW finished matches
       if (finished && homeGoals !== null && awayGoals !== null) {
         await updateRatings(home, away, homeGoals, awayGoals);
       }
@@ -184,11 +225,8 @@ async function storeMatches(matches) {
       existing.home_goals = homeGoals;
       existing.away_goals = awayGoals;
       await existing.save();
-
-      // Was pending → now finished: apply ratings now
       await updateRatings(home, away, homeGoals, awayGoals);
     }
-    // If existing and already had goals, do nothing (avoid double-counting ratings)
 
     stored++;
   }
@@ -206,9 +244,9 @@ async function runIngestion() {
   const totalChunks = pastChunks + futureChunks;
   const estMinutes = ((totalChunks * REQUEST_DELAY_MS) / 60000).toFixed(1);
 
-  console.log(`📊 ${totalChunks} chunks total — estimated ~${estMinutes} minutes (rate-limit limited)`);
+  console.log(`📊 ${totalChunks} chunks total — estimated ~${estMinutes} minutes`);
 
-  // ── Past ──
+  // Past
   for (let i = 0; i < PAST_DAYS; i += PAST_CHUNK_DAYS) {
     const start = new Date(now.getTime() - (PAST_DAYS - i) * 86400000);
     const end = new Date(start.getTime() + PAST_CHUNK_DAYS * 86400000);
@@ -222,11 +260,10 @@ async function runIngestion() {
     const stored = await storeMatches(matches);
     total += stored;
     console.log(`      stored/updated ${stored}`);
-
     await sleep(REQUEST_DELAY_MS);
   }
 
-  // ── Future ──
+  // Future
   for (let i = 0; i < FUTURE_DAYS; i += FUTURE_CHUNK_DAYS) {
     const start = new Date(now.getTime() + i * 86400000);
     const end = new Date(start.getTime() + FUTURE_CHUNK_DAYS * 86400000);
@@ -240,7 +277,6 @@ async function runIngestion() {
     const stored = await storeMatches(matches);
     total += stored;
     console.log(`      stored/updated ${stored}`);
-
     await sleep(REQUEST_DELAY_MS);
   }
 

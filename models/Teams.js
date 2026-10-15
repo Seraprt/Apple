@@ -7,7 +7,10 @@ const teamSchema = new mongoose.Schema({
   league: { type: String, default: '' },
   country: { type: String, default: '' },
   color: { type: String, default: '#333333' },
-
+  attack_rating_home: { type: Number, default: 1.0 },
+attack_rating_away: { type: Number, default: 1.0 },
+defence_rating_home: { type: Number, default: 1.0 },
+defence_rating_away: { type: Number, default: 1.0 },
   // Ratings
   attack_rating: { type: Number, default: 1.0 },
   defence_rating: { type: Number, default: 1.0 },
