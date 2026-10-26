@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Formline Admin</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <style>
     * { box-sizing: border-box; }
     body {
       background: #0B0E13; color: #E9EEF6;
       font-family: system-ui, -apple-system, sans-serif;
       margin: 0; padding: 24px;
-      max-width: 720px; margin: 0 auto;
+      max-width: 820px; margin: 0 auto;
     }
     h1 { font-size: 22px; letter-spacing: -0.03em; margin-bottom: 4px; }
     h1 em { color: #C8F751; font-style: normal; }
@@ -24,7 +25,11 @@
       letter-spacing: -0.01em; color: #8792A3;
       text-transform: uppercase;
     }
-    input, textarea, button {
+    .card h4 {
+      margin: 4px 0 8px; font-size: 12px; color: #8792A3;
+      text-transform: uppercase; letter-spacing: .06em;
+    }
+    input, textarea, button, select {
       font: inherit; padding: 12px 14px; border-radius: 10px;
       border: 1px solid #232B37; background: #161B24; color: #E9EEF6;
       width: 100%; margin-bottom: 8px;
@@ -36,6 +41,7 @@
     }
     button:active { transform: scale(0.985); }
     button.danger { background: #FF6161; color: white; }
+    button.ghost { background: #161B24; color: #8792A3; border: 1px solid #232B37; }
     button:disabled { background: #232B37; color: #5A6474; cursor: not-allowed; }
     button.small { width: auto; padding: 6px 10px; font-size: 11px; margin-bottom: 0; }
     .stat { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
@@ -55,6 +61,8 @@
     .badge.running { background: rgba(255,176,32,.14); color: #FFB020; }
     .badge.google { background: rgba(66,133,244,.18); color: #8ab4f8; }
     .badge.email { background: rgba(200,247,81,.16); color: #C8F751; }
+    .badge.published { background: rgba(200,247,81,.16); color: #C8F751; }
+    .badge.draft { background: rgba(90,100,116,.18); color: #8792A3; }
 
     /* Users stats */
     .users-grid {
@@ -71,52 +79,33 @@
       text-align: center;
     }
     .users-tile .num {
-      font-size: 22px;
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      color: #E9EEF6;
-      display: block;
-      margin-bottom: 4px;
+      font-size: 22px; font-weight: 800;
+      letter-spacing: -0.03em; color: #E9EEF6;
+      display: block; margin-bottom: 4px;
     }
     .users-tile .lbl {
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #5A6474;
-      font-weight: 700;
+      font-size: 10px; text-transform: uppercase;
+      letter-spacing: 0.08em; color: #5A6474; font-weight: 700;
     }
     .users-tile.google .num { color: #8ab4f8; }
     .users-tile.email .num { color: #C8F751; }
 
-    /* Ratio bar */
     .ratio-bar {
-      display: flex;
-      height: 8px;
-      border-radius: 4px;
-      overflow: hidden;
-      background: #1C222C;
-      margin-bottom: 6px;
+      display: flex; height: 8px; border-radius: 4px;
+      overflow: hidden; background: #1C222C; margin-bottom: 6px;
     }
     .ratio-bar .g { background: #4285F4; }
     .ratio-bar .e { background: #C8F751; }
     .ratio-bar .o { background: #5A6474; }
-
     .ratio-legend {
-      display: flex;
-      gap: 14px;
-      font-size: 11px;
-      color: #8792A3;
-      margin-bottom: 14px;
+      display: flex; gap: 14px; font-size: 11px;
+      color: #8792A3; margin-bottom: 14px;
     }
     .ratio-legend span b { color: #E9EEF6; }
 
-    /* Recent users table */
     .user-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 0;
-      border-bottom: 1px solid #1A2029;
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 0; border-bottom: 1px solid #1A2029;
       font-size: 12.5px;
     }
     .user-row:last-child { border-bottom: 0; }
@@ -128,43 +117,104 @@
       background: linear-gradient(140deg, #2A3542, #1A212B);
       display: grid; place-items: center;
       font-size: 11px; font-weight: 800;
-      color: #C8F751;
-      overflow: hidden; flex: none;
+      color: #C8F751; overflow: hidden; flex: none;
     }
     .user-avatar img { width: 100%; height: 100%; object-fit: cover; }
     .user-empty { color: #5A6474; font-size: 12.5px; padding: 12px 0; text-align: center; }
+
+    /* Daily Picks */
+    .dp-row {
+      display: grid;
+      grid-template-columns: 32px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid #1A2029;
+    }
+    .dp-row:last-child { border-bottom: 0; }
+    .dp-row-num {
+      font-size: 11px; font-weight: 800; color: #5A6474;
+      text-align: center;
+    }
+    .dp-row-main { min-width: 0; }
+    .dp-row-title {
+      font-size: 13px; font-weight: 700; color: #E9EEF6;
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 4px;
+    }
+    .dp-logo {
+      width: 20px; height: 20px; object-fit: contain;
+      background: #161B24; border-radius: 4px;
+    }
+    .dp-logo-fallback {
+      width: 20px; height: 20px; border-radius: 50%;
+      background: #232B37; color: #8792A3;
+      font-size: 9px; font-weight: 800;
+      display: grid; place-items: center;
+    }
+    .dp-row-meta {
+      font-size: 11px; color: #5A6474;
+    }
+    .dp-row-fields {
+      display: grid; grid-template-columns: 1fr 90px;
+      gap: 6px; margin-top: 6px;
+    }
+    .dp-row-fields input {
+      margin: 0; padding: 6px 10px; font-size: 12px;
+    }
+    .dp-row-actions {
+      display: flex; flex-direction: column; gap: 4px;
+    }
+
+    .dp-search-result {
+      display: flex; justify-content: space-between;
+      align-items: center; gap: 8px;
+      padding: 8px 10px; background: #161B24;
+      border: 1px solid #232B37; border-radius: 8px;
+      margin-bottom: 4px; font-size: 12px;
+    }
+    .dp-search-result.added {
+      opacity: 0.55;
+    }
+
+    .dp-preview-grid {
+      display: grid; grid-template-columns: 1fr; gap: 12px;
+      margin-top: 12px;
+    }
+    .dp-preview-card {
+      background: #11151C; border: 1px solid #232B37;
+      border-radius: 10px; padding: 10px;
+    }
+    .dp-preview-card img {
+      width: 100%; border-radius: 6px; display: block;
+    }
+    .dp-preview-label {
+      font-size: 11px; color: #8792A3; margin-bottom: 8px;
+      font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    }
+
+    .dp-hint {
+      font-size: 11px; color: #5A6474; margin: -4px 0 8px; line-height: 1.4;
+    }
   </style>
 </head>
 <body>
   <h1>FORM<em>LINE</em> Admin</h1>
-  <p class="sub">Ingestion · Warm cache · Users · Custom matches · Daily message · Status</p>
+  <p class="sub">Ingestion · Warm cache · Users · Custom matches · Daily message · Daily picks · Status</p>
 
   <div class="card">
     <h3>Admin Key</h3>
     <input type="password" id="adminKey" placeholder="Enter admin key" />
   </div>
 
-  <!-- ══════════════════════════════════════════ -->
-  <!-- USERS STATS -->
-  <!-- ══════════════════════════════════════════ -->
+  <!-- USERS -->
   <div class="card">
     <h3>Users</h3>
-
     <div class="users-grid">
-      <div class="users-tile">
-        <span class="num" id="uTotal">—</span>
-        <span class="lbl">Total</span>
-      </div>
-      <div class="users-tile google">
-        <span class="num" id="uGoogle">—</span>
-        <span class="lbl">Google</span>
-      </div>
-      <div class="users-tile email">
-        <span class="num" id="uEmail">—</span>
-        <span class="lbl">Email</span>
-      </div>
+      <div class="users-tile"><span class="num" id="uTotal">—</span><span class="lbl">Total</span></div>
+      <div class="users-tile google"><span class="num" id="uGoogle">—</span><span class="lbl">Google</span></div>
+      <div class="users-tile email"><span class="num" id="uEmail">—</span><span class="lbl">Email</span></div>
     </div>
-
     <div class="ratio-bar" id="ratioBar">
       <div class="g" id="ratioG" style="width:0%"></div>
       <div class="e" id="ratioE" style="width:0%"></div>
@@ -175,18 +225,11 @@
       <span><b style="color:#C8F751">●</b> Email <b id="legendE">0%</b></span>
       <span><b style="color:#5A6474">●</b> Other <b id="legendO">0%</b></span>
     </div>
-
-    <h4 style="margin: 4px 0 4px; font-size: 12px; color: #8792A3; text-transform: uppercase; letter-spacing: .06em;">
-      Recent signups
-    </h4>
-    <div id="recentUsers">
-      <div class="user-empty">Enter admin key to load users.</div>
-    </div>
+    <h4>Recent signups</h4>
+    <div id="recentUsers"><div class="user-empty">Enter admin key to load users.</div></div>
   </div>
 
-  <!-- ══════════════════════════════════════════ -->
   <!-- STATUS -->
-  <!-- ══════════════════════════════════════════ -->
   <div class="card">
     <h3>System Status</h3>
     <div class="stat"><span>Ingestion</span><span id="statIngest" class="badge idle">—</span></div>
@@ -196,9 +239,7 @@
     <div class="stat"><span>Analyses cached</span><strong id="statAnalyses">—</strong></div>
   </div>
 
-  <!-- ══════════════════════════════════════════ -->
   <!-- ACTIONS -->
-  <!-- ══════════════════════════════════════════ -->
   <div class="card">
     <h3>Actions</h3>
     <button id="btnIngest">Run Ingestion</button>
@@ -207,9 +248,7 @@
     <button id="btnRefresh">Refresh Status &amp; Users</button>
   </div>
 
-  <!-- ══════════════════════════════════════════ -->
   <!-- DAILY MESSAGE -->
-  <!-- ══════════════════════════════════════════ -->
   <div class="card">
     <h3>Daily Message</h3>
     <p style="font-size:12px;color:#5A6474;margin:0 0 10px;">
@@ -222,9 +261,7 @@
     <div id="dmStatus" style="font-size:12px;color:#5A6474;margin-top:8px;">No message loaded.</div>
   </div>
 
-  <!-- ══════════════════════════════════════════ -->
   <!-- CUSTOM MATCHES -->
-  <!-- ══════════════════════════════════════════ -->
   <div class="card">
     <h3>Add Custom Match</h3>
     <input id="cmHome" placeholder="Home team name" />
@@ -239,29 +276,80 @@
   </div>
 
   <div class="card">
-    <h3>Custom Matches</h3>
+    <h3>Custom Matches (system)</h3>
     <div id="customList" style="font-size: 12px; color: #5A6474;">Loading…</div>
   </div>
 
   <!-- ══════════════════════════════════════════ -->
-  <!-- LOG -->
+  <!-- DAILY PICKS BUILDER -->
   <!-- ══════════════════════════════════════════ -->
+  <div class="card">
+    <h3>Daily Picks Builder</h3>
+    <p class="dp-hint">Build today's picture. Max 20 picks per picture — extra picks split into multiple downloads.</p>
+
+    <h4>Date</h4>
+    <input type="date" id="dpDate" />
+    <button id="dpLoad" class="ghost">Load Picks for Date</button>
+
+    <h4>Booking Code (football.com 2-odds)</h4>
+    <input id="dpBookingCode" placeholder="e.g. ABC123XYZ" />
+    <button id="dpSaveBooking" class="ghost">Save Booking Code</button>
+    <div id="dpPublishStatus" style="font-size:12px;color:#5A6474;margin-top:4px;"></div>
+
+    <hr style="border:0;border-top:1px solid #232B37;margin:16px 0;" />
+
+    <h4>Today's Picks (<span id="dpCount">0</span>)</h4>
+    <div id="dpPicksList">
+      <div class="user-empty">Load a date to see picks.</div>
+    </div>
+
+    <hr style="border:0;border-top:1px solid #232B37;margin:16px 0;" />
+
+    <h4>Add from System</h4>
+    <input id="dpSearch" placeholder="Search team or league..." />
+    <button id="dpSearchBtn" class="ghost">Search</button>
+    <div id="dpSearchResults"></div>
+
+    <hr style="border:0;border-top:1px solid #232B37;margin:16px 0;" />
+
+    <h4>Add Custom Match (no logo)</h4>
+    <input id="dpCustomHome" placeholder="Home team name" />
+    <input id="dpCustomAway" placeholder="Away team name" />
+    <input id="dpCustomLeague" placeholder="League (optional)" />
+    <input id="dpCustomTime" type="datetime-local" />
+    <input id="dpCustomSecondary" placeholder="Secondary prediction (e.g. Over 2.5)" />
+    <input id="dpCustomScore" placeholder="Correct score (e.g. 2-1)" />
+    <button id="dpAddCustom">Add Custom Match</button>
+
+    <hr style="border:0;border-top:1px solid #232B37;margin:16px 0;" />
+
+    <h4>Generate &amp; Publish</h4>
+    <button id="dpGenerate">Generate Picture(s)</button>
+    <button id="dpPublish">Publish to Perfect Picks</button>
+    <button id="dpUnpublish" class="ghost">Unpublish</button>
+
+    <div id="dpPreview" class="dp-preview-grid"></div>
+  </div>
+
+  <!-- LOG -->
   <div class="card">
     <h3>Log</h3>
     <div class="log" id="log">Ready. Paste your admin key and click Refresh.</div>
   </div>
 
+  <!-- OFFSCREEN PRINT AREA (for html2canvas) -->
+  <div id="dpPrintArea" style="position:fixed;left:-10000px;top:0;"></div>
+
   <script>
-    // ⚠️ PASTE YOUR BACKEND URL HERE
-    const API = 'https://apple-6r7q.onrender.com/api/admin';
+    const API_BASE = 'https://apple-6r7q.onrender.com/api';
+    const API = API_BASE + '/admin';
+    const IMG_PROXY = API_BASE + '/img?url=';
 
     const logEl = document.getElementById('log');
-
     function log(msg) {
       const time = new Date().toLocaleTimeString();
       logEl.textContent = `[${time}] ${msg}\n` + logEl.textContent;
     }
-
     function getKey() {
       return document.getElementById('adminKey').value.trim();
     }
@@ -269,16 +357,13 @@
     async function call(path, method = 'GET', body) {
       const key = getKey();
       if (!key) throw new Error('Enter admin key first');
-
-      const url = API + path;
       const headers = { 'X-Admin-Key': key };
       if (body) headers['Content-Type'] = 'application/json';
 
       let res;
       try {
-        res = await fetch(url, {
-          method,
-          headers,
+        res = await fetch(API + path, {
+          method, headers,
           body: body ? JSON.stringify(body) : undefined,
         });
       } catch (netErr) {
@@ -287,10 +372,7 @@
 
       let data = {};
       try { data = await res.json(); } catch (_) {}
-
-      if (!res.ok) {
-        throw new Error(data.error || data.message || `HTTP ${res.status}`);
-      }
+      if (!res.ok) throw new Error(data.error || data.message || `HTTP ${res.status}`);
       return data;
     }
 
@@ -305,20 +387,17 @@
     async function loadUsers() {
       try {
         const data = await call('/users-stats');
-
         document.getElementById('uTotal').textContent = data.total ?? 0;
         document.getElementById('uGoogle').textContent = data.google ?? 0;
         document.getElementById('uEmail').textContent = data.email ?? 0;
 
-        const total = data.total || 1; // avoid div by 0
+        const total = data.total || 1;
         const gp = Math.round((data.google / total) * 100);
         const ep = Math.round((data.email / total) * 100);
         const op = Math.max(0, 100 - gp - ep);
-
         document.getElementById('ratioG').style.width = gp + '%';
         document.getElementById('ratioE').style.width = ep + '%';
         document.getElementById('ratioO').style.width = op + '%';
-
         document.getElementById('legendG').textContent = gp + '%';
         document.getElementById('legendE').textContent = ep + '%';
         document.getElementById('legendO').textContent = op + '%';
@@ -328,7 +407,6 @@
           list.innerHTML = '<div class="user-empty">No users yet.</div>';
           return;
         }
-
         list.innerHTML = data.recent.map((u) => {
           const when = u.createdAt
             ? new Date(u.createdAt).toLocaleDateString(undefined, {
@@ -373,43 +451,24 @@
         document.getElementById('statTeams').textContent = s.teams;
         document.getElementById('statMatches').textContent = s.matches;
         document.getElementById('statAnalyses').textContent = s.analyses;
-      } catch (e) {
-        // silent
-      }
+      } catch (e) {}
     }
 
     document.getElementById('btnIngest').onclick = async () => {
-      try {
-        log('Starting ingestion...');
-        const r = await call('/ingest', 'POST');
-        log('OK: ' + r.message);
-        setTimeout(refresh, 2000);
-      } catch (e) { log('ERROR: ' + e.message); }
+      try { log('Starting ingestion...'); const r = await call('/ingest', 'POST'); log('OK: ' + r.message); setTimeout(refresh, 2000); }
+      catch (e) { log('ERROR: ' + e.message); }
     };
-
     document.getElementById('btnWarm').onclick = async () => {
-      try {
-        log('Warming cache...');
-        const r = await call('/warm-cache', 'POST');
-        log('OK: ' + r.message);
-        setTimeout(refresh, 2000);
-      } catch (e) { log('ERROR: ' + e.message); }
+      try { log('Warming cache...'); const r = await call('/warm-cache', 'POST'); log('OK: ' + r.message); setTimeout(refresh, 2000); }
+      catch (e) { log('ERROR: ' + e.message); }
     };
-
     document.getElementById('btnClear').onclick = async () => {
       if (!confirm('Clear all cached analyses?')) return;
-      try {
-        const r = await call('/clear-cache', 'POST');
-        log('OK: ' + r.message);
-        refresh();
-      } catch (e) { log('ERROR: ' + e.message); }
+      try { const r = await call('/clear-cache', 'POST'); log('OK: ' + r.message); refresh(); }
+      catch (e) { log('ERROR: ' + e.message); }
     };
-
     document.getElementById('btnRefresh').onclick = () => {
-      log('Refreshing...');
-      refresh();
-      loadUsers();
-      loadDailyMessage();
+      log('Refreshing...'); refresh(); loadUsers(); loadDailyMessage();
     };
 
     // ═══════════════════════════════════════════
@@ -427,48 +486,30 @@
         }
         document.getElementById('dmHeading').value = data.heading || '';
         document.getElementById('dmBody').value = data.body || '';
-        statusEl.textContent =
-          'Current message updated: ' +
-          new Date(data.updated_at).toLocaleString();
-      } catch (e) {
-        statusEl.textContent = 'Enter admin key to load.';
-      }
+        statusEl.textContent = 'Current message updated: ' + new Date(data.updated_at).toLocaleString();
+      } catch (e) { statusEl.textContent = 'Enter admin key to load.'; }
     }
-
     document.getElementById('btnSaveDM').onclick = async () => {
       const heading = document.getElementById('dmHeading').value.trim();
       const body = document.getElementById('dmBody').value.trim();
-      if (!heading || !body) {
-        log('Enter heading and body for daily message');
-        return;
-      }
-      try {
-        await call('/daily-message', 'PUT', { heading, body });
-        log('Daily message saved');
-        loadDailyMessage();
-      } catch (e) { log('ERROR: ' + e.message); }
+      if (!heading || !body) { log('Enter heading and body for daily message'); return; }
+      try { await call('/daily-message', 'PUT', { heading, body }); log('Daily message saved'); loadDailyMessage(); }
+      catch (e) { log('ERROR: ' + e.message); }
     };
-
     document.getElementById('btnDeleteDM').onclick = async () => {
       if (!confirm('Delete the daily message?')) return;
-      try {
-        await call('/daily-message', 'DELETE');
-        log('Daily message deleted');
-        loadDailyMessage();
-      } catch (e) { log('ERROR: ' + e.message); }
+      try { await call('/daily-message', 'DELETE'); log('Daily message deleted'); loadDailyMessage(); }
+      catch (e) { log('ERROR: ' + e.message); }
     };
 
     // ═══════════════════════════════════════════
-    // CUSTOM MATCHES
+    // CUSTOM MATCHES (existing system custom matches)
     // ═══════════════════════════════════════════
     async function loadCustomMatches() {
       const list = document.getElementById('customList');
       try {
         const data = await call('/custom-matches');
-        if (!data.length) {
-          list.innerHTML = 'No custom matches yet.';
-          return;
-        }
+        if (!data.length) { list.innerHTML = 'No custom matches yet.'; return; }
         list.innerHTML = data.map(m => `
           <div style="padding:10px 0;border-bottom:1px solid #232B37;display:flex;justify-content:space-between;align-items:center;gap:10px">
             <div>
@@ -479,22 +520,13 @@
             <button class="danger small" onclick="deleteCustomMatch('${m._id}')">Delete</button>
           </div>
         `).join('');
-      } catch (e) {
-        list.innerHTML = 'Enter admin key to load.';
-      }
+      } catch (e) { list.innerHTML = 'Enter admin key to load.'; }
     }
-
     window.deleteCustomMatch = async (id) => {
       if (!confirm('Delete this custom match?')) return;
-      try {
-        await call(`/custom-matches/${id}`, 'DELETE');
-        log('Custom match deleted');
-        loadCustomMatches();
-      } catch (e) {
-        log('ERROR: ' + e.message);
-      }
+      try { await call(`/custom-matches/${id}`, 'DELETE'); log('Custom match deleted'); loadCustomMatches(); }
+      catch (e) { log('ERROR: ' + e.message); }
     };
-
     document.getElementById('btnAddCustom').onclick = async () => {
       const home_team_name = document.getElementById('cmHome').value.trim();
       const away_team_name = document.getElementById('cmAway').value.trim();
@@ -504,31 +536,409 @@
       const suggested_market = document.getElementById('cmMarket').value.trim();
       const suggested_score = document.getElementById('cmScore').value.trim();
       const notes = document.getElementById('cmNotes').value.trim();
-
       if (!home_team_name || !away_team_name || !league || !dateInput || !suggested_market) {
-        log('Fill in home, away, league, date and market');
+        log('Fill in home, away, league, date and market'); return;
+      }
+      try {
+        await call('/custom-matches', 'POST', {
+          home_team_name, away_team_name, league, country,
+          date: new Date(dateInput).toISOString(),
+          suggested_market, suggested_score, notes,
+        });
+        log('Custom match created');
+        ['cmHome','cmAway','cmLeague','cmCountry','cmDate','cmMarket','cmScore','cmNotes']
+          .forEach(id => { document.getElementById(id).value = ''; });
+        loadCustomMatches();
+      } catch (e) { log('ERROR: ' + e.message); }
+    };
+
+    // ═══════════════════════════════════════════
+    // DAILY PICKS BUILDER
+    // ═══════════════════════════════════════════
+    const dpState = {
+      date: '',
+      picks: [],
+      meta: { booking_code: '', published: false },
+    };
+
+    // Default date = today
+    (function initDpDate() {
+      const today = new Date().toISOString().slice(0, 10);
+      document.getElementById('dpDate').value = today;
+      dpState.date = today;
+    })();
+
+    function renderPicksList() {
+      const listEl = document.getElementById('dpPicksList');
+      document.getElementById('dpCount').textContent = dpState.picks.length;
+
+      if (!dpState.picks.length) {
+        listEl.innerHTML = '<div class="user-empty">No picks yet. Search or add a custom match below.</div>';
         return;
       }
 
+      listEl.innerHTML = dpState.picks.map((p, i) => {
+        const homeLogo = p.home_logo
+          ? `<img src="${p.home_logo}" class="dp-logo" onerror="this.style.display='none'" />`
+          : `<div class="dp-logo-fallback">${(p.home_name || '?').slice(0,2).toUpperCase()}</div>`;
+        const awayLogo = p.away_logo
+          ? `<img src="${p.away_logo}" class="dp-logo" onerror="this.style.display='none'" />`
+          : `<div class="dp-logo-fallback">${(p.away_name || '?').slice(0,2).toUpperCase()}</div>`;
+        const timeStr = p.match_time
+          ? new Date(p.match_time).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+          : '';
+        return `
+          <div class="dp-row" data-id="${p._id}">
+            <div class="dp-row-num">${i + 1}</div>
+            <div class="dp-row-main">
+              <div class="dp-row-title">
+                ${homeLogo}
+                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.home_name} vs ${p.away_name}</span>
+                ${awayLogo}
+              </div>
+              <div class="dp-row-meta">
+                ${p.league || '—'}${timeStr ? ' · ' + timeStr : ''}${p.is_custom ? ' · CUSTOM' : ''}
+              </div>
+              <div class="dp-row-fields">
+                <input data-field="secondary" data-id="${p._id}"
+                  value="${(p.secondary_prediction || '').replace(/"/g, '&quot;')}"
+                  placeholder="Secondary pick" />
+                <input data-field="score" data-id="${p._id}"
+                  value="${(p.correct_score || '').replace(/"/g, '&quot;')}"
+                  placeholder="2-1" />
+              </div>
+            </div>
+            <div class="dp-row-actions">
+              <button class="small" data-save="${p._id}">Save</button>
+              <button class="small danger" data-del="${p._id}">✕</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Wire save buttons
+      listEl.querySelectorAll('[data-save]').forEach((btn) => {
+        btn.onclick = async () => {
+          const id = btn.getAttribute('data-save');
+          const row = btn.closest('.dp-row');
+          const secondary = row.querySelector('[data-field="secondary"]').value.trim();
+          const score = row.querySelector('[data-field="score"]').value.trim();
+          try {
+            await call(`/daily-picks/${id}`, 'PUT', {
+              secondary_prediction: secondary,
+              correct_score: score,
+            });
+            log('Pick updated');
+            const idx = dpState.picks.findIndex(x => x._id === id);
+            if (idx >= 0) {
+              dpState.picks[idx].secondary_prediction = secondary;
+              dpState.picks[idx].correct_score = score;
+            }
+          } catch (e) { log('ERROR: ' + e.message); }
+        };
+      });
+
+      // Wire delete buttons
+      listEl.querySelectorAll('[data-del]').forEach((btn) => {
+        btn.onclick = async () => {
+          const id = btn.getAttribute('data-del');
+          if (!confirm('Remove this pick from today\'s list?')) return;
+          try {
+            await call(`/daily-picks/${id}`, 'DELETE');
+            dpState.picks = dpState.picks.filter(x => x._id !== id);
+            renderPicksList();
+            log('Pick removed');
+          } catch (e) { log('ERROR: ' + e.message); }
+        };
+      });
+    }
+
+    async function loadDailyPicks() {
+      const date = document.getElementById('dpDate').value;
+      if (!date) { log('Pick a date first'); return; }
+      dpState.date = date;
+
       try {
-        await call('/custom-matches', 'POST', {
-          home_team_name,
-          away_team_name,
-          league,
-          country,
-          date: new Date(dateInput).toISOString(),
-          suggested_market,
-          suggested_score,
-          notes,
-        });
-        log('Custom match created');
-        ['cmHome','cmAway','cmLeague','cmCountry','cmDate','cmMarket','cmScore','cmNotes'].forEach(id => {
-          document.getElementById(id).value = '';
-        });
-        loadCustomMatches();
+        const data = await call(`/daily-picks?date=${date}`);
+        dpState.picks = data.picks || [];
+        dpState.meta = data.meta || { booking_code: '', published: false };
+        document.getElementById('dpBookingCode').value = dpState.meta.booking_code || '';
+
+        const statusEl = document.getElementById('dpPublishStatus');
+        if (dpState.meta.published) {
+          statusEl.innerHTML =
+            `<span class="badge published">Published</span> ${dpState.meta.published_at ? 'on ' + new Date(dpState.meta.published_at).toLocaleString() : ''}`;
+        } else {
+          statusEl.innerHTML = '<span class="badge draft">Not published</span>';
+        }
+
+        renderPicksList();
+        log(`Loaded ${dpState.picks.length} picks for ${date}`);
       } catch (e) {
         log('ERROR: ' + e.message);
       }
+    }
+
+    document.getElementById('dpLoad').onclick = loadDailyPicks;
+
+    document.getElementById('dpSaveBooking').onclick = async () => {
+      const date = document.getElementById('dpDate').value;
+      const booking_code = document.getElementById('dpBookingCode').value.trim();
+      if (!date) return log('Pick a date first');
+      try {
+        await call(`/daily-picks/meta/${date}/booking-code`, 'PUT', { booking_code });
+        dpState.meta.booking_code = booking_code;
+        log('Booking code saved');
+      } catch (e) { log('ERROR: ' + e.message); }
+    };
+
+    // ── Search ──
+    document.getElementById('dpSearchBtn').onclick = async () => {
+      const date = document.getElementById('dpDate').value;
+      const q = document.getElementById('dpSearch').value.trim();
+      if (!date) return log('Pick a date first');
+
+      const container = document.getElementById('dpSearchResults');
+      container.innerHTML = '<div class="user-empty">Searching…</div>';
+      try {
+        const data = await call(`/daily-picks/search?date=${date}&q=${encodeURIComponent(q)}`);
+        const results = data.results || [];
+        if (!results.length) {
+          container.innerHTML = '<div class="user-empty">No matches found for this date.</div>';
+          return;
+        }
+        container.innerHTML = results.map((m) => `
+          <div class="dp-search-result ${m.already_added ? 'added' : ''}">
+            <div style="min-width:0">
+              <div style="color:#E9EEF6;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                ${m.home_name} vs ${m.away_name}
+              </div>
+              <div style="font-size:10.5px;color:#5A6474">
+                ${m.tournament || '—'}${m.secondary_prediction ? ' · ' + m.secondary_prediction : ''}${m.correct_score ? ' · ' + m.correct_score : ''}
+              </div>
+            </div>
+            <button class="small ${m.already_added ? 'ghost' : ''}"
+              ${m.already_added ? 'disabled' : `data-add-match="${m.match_id}"`}>
+              ${m.already_added ? 'Added' : 'Add'}
+            </button>
+          </div>
+        `).join('');
+
+        container.querySelectorAll('[data-add-match]').forEach((btn) => {
+          btn.onclick = async () => {
+            const match_id = btn.getAttribute('data-add-match');
+            try {
+              await call('/daily-picks', 'POST', { date, match_id });
+              log('Match added');
+              loadDailyPicks();
+              btn.disabled = true;
+              btn.textContent = 'Added';
+              btn.classList.add('ghost');
+            } catch (e) { log('ERROR: ' + e.message); }
+          };
+        });
+      } catch (e) {
+        container.innerHTML = '<div class="user-empty">Search failed.</div>';
+        log('ERROR: ' + e.message);
+      }
+    };
+
+    // ── Add custom ──
+    document.getElementById('dpAddCustom').onclick = async () => {
+      const date = document.getElementById('dpDate').value;
+      const home_name = document.getElementById('dpCustomHome').value.trim();
+      const away_name = document.getElementById('dpCustomAway').value.trim();
+      const league = document.getElementById('dpCustomLeague').value.trim();
+      const match_time = document.getElementById('dpCustomTime').value;
+      const secondary_prediction = document.getElementById('dpCustomSecondary').value.trim();
+      const correct_score = document.getElementById('dpCustomScore').value.trim();
+
+      if (!date || !home_name || !away_name) {
+        return log('Date, home and away team names are required');
+      }
+      try {
+        await call('/daily-picks/custom', 'POST', {
+          date, home_name, away_name, league,
+          match_time: match_time ? new Date(match_time).toISOString() : null,
+          secondary_prediction, correct_score,
+        });
+        log('Custom match added');
+        ['dpCustomHome','dpCustomAway','dpCustomLeague','dpCustomTime','dpCustomSecondary','dpCustomScore']
+          .forEach(id => { document.getElementById(id).value = ''; });
+        loadDailyPicks();
+      } catch (e) { log('ERROR: ' + e.message); }
+    };
+
+    // ── Publish / unpublish ──
+    document.getElementById('dpPublish').onclick = async () => {
+      const date = document.getElementById('dpDate').value;
+      if (!date) return log('Pick a date first');
+      if (!dpState.picks.length) return log('No picks to publish');
+      if (!confirm(`Publish ${dpState.picks.length} picks for ${date} to Perfect Picks?`)) return;
+      try {
+        const r = await call(`/daily-picks/publish/${date}`, 'POST');
+        log(`Published ${r.count} picks`);
+        loadDailyPicks();
+      } catch (e) { log('ERROR: ' + e.message); }
+    };
+    document.getElementById('dpUnpublish').onclick = async () => {
+      const date = document.getElementById('dpDate').value;
+      if (!date) return log('Pick a date first');
+      try {
+        await call(`/daily-picks/unpublish/${date}`, 'POST');
+        log('Unpublished');
+        loadDailyPicks();
+      } catch (e) { log('ERROR: ' + e.message); }
+    };
+
+    // ── Picture generation ──
+    function proxyLogo(url) {
+      if (!url) return '';
+      if (!url.startsWith('http')) return url;
+      return IMG_PROXY + encodeURIComponent(url);
+    }
+
+    function renderLogoChip(logoUrl, teamName) {
+      if (logoUrl) {
+        const proxied = proxyLogo(logoUrl);
+        return `<img src="${proxied}" crossorigin="anonymous"
+          style="width:34px;height:34px;object-fit:contain;flex-shrink:0;" />`;
+      }
+      const initials = (teamName || '?').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+      return `<div style="width:34px;height:34px;border-radius:50%;background:#232B37;color:#8792A3;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0;">${initials}</div>`;
+    }
+
+    function renderPictureHTML(picks, date, bookingCode, partNum, totalParts) {
+      const dateLabel = new Date(date + 'T00:00:00').toLocaleDateString('en-GB', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+      });
+      const rowsHtml = picks.map((p) => {
+        const timeStr = p.match_time
+          ? new Date(p.match_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+          : '';
+        return `
+          <div style="display:grid;grid-template-columns:620px 280px 140px;gap:16px;padding:10px 0;border-bottom:1px solid #1A2029;align-items:center;">
+            <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+              ${renderLogoChip(p.home_logo, p.home_name)}
+              ${renderLogoChip(p.away_logo, p.away_name)}
+              <div style="min-width:0;flex:1;">
+                <div style="font-size:15px;font-weight:700;color:#E9EEF6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                  ${p.home_name} vs ${p.away_name}
+                </div>
+                <div style="font-size:11px;color:#5A6474;margin-top:2px;">
+                  ${p.league || '—'}${timeStr ? ' • ' + timeStr : ''}
+                </div>
+              </div>
+            </div>
+            <div style="font-size:14px;font-weight:700;color:#C8F751;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              ${p.secondary_prediction || '—'}
+            </div>
+            <div style="font-size:20px;font-weight:800;color:#E9EEF6;text-align:right;font-variant-numeric:tabular-nums;">
+              ${p.correct_score || '—'}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div style="width:1080px;background:#0B0E13;padding:36px 32px 32px;font-family:system-ui,-apple-system,sans-serif;color:#E9EEF6;">
+          <div style="text-align:center;margin-bottom:24px;padding-bottom:18px;border-bottom:2px solid #232B37;">
+            <div style="font-size:40px;font-weight:900;letter-spacing:-0.03em;color:#E9EEF6;line-height:1;">
+              FORM<span style="color:#C8F751;">LINE</span>
+            </div>
+            <div style="font-size:18px;color:#8792A3;margin-top:10px;letter-spacing:0.08em;text-transform:uppercase;font-weight:700;">
+              Daily Predictions
+            </div>
+            <div style="font-size:16px;color:#C8F751;margin-top:6px;font-weight:700;">
+              ${dateLabel}
+            </div>
+            ${totalParts > 1 ? `<div style="font-size:12px;color:#5A6474;margin-top:4px;">Part ${partNum} of ${totalParts}</div>` : ''}
+          </div>
+
+          <div style="display:grid;grid-template-columns:620px 280px 140px;gap:16px;padding:8px 0;border-bottom:1px solid #232B37;margin-bottom:6px;">
+            <div style="font-size:10.5px;color:#5A6474;font-weight:800;letter-spacing:0.10em;text-transform:uppercase;">Match</div>
+            <div style="font-size:10.5px;color:#5A6474;font-weight:800;letter-spacing:0.10em;text-transform:uppercase;">Secondary</div>
+            <div style="font-size:10.5px;color:#5A6474;font-weight:800;letter-spacing:0.10em;text-transform:uppercase;text-align:right;">Score</div>
+          </div>
+
+          ${rowsHtml}
+
+          ${bookingCode ? `
+            <div style="margin-top:22px;text-align:center;">
+              <div style="display:inline-block;padding:12px 24px;background:rgba(200,247,81,0.10);border:2px solid #C8F751;border-radius:14px;">
+                <div style="font-size:11px;color:#C8F751;font-weight:800;letter-spacing:0.10em;text-transform:uppercase;margin-bottom:4px;">
+                  Football.com 2-Odds Booking Code
+                </div>
+                <div style="font-size:26px;color:#E9EEF6;font-weight:900;letter-spacing:0.10em;">
+                  ${bookingCode}
+                </div>
+              </div>
+            </div>
+          ` : ''}
+
+          <div style="margin-top:24px;padding-top:18px;border-top:2px solid #232B37;text-align:center;">
+            <div style="font-size:14px;color:#C8F751;font-weight:700;line-height:1.5;">
+              Visit formline.com.ng to get free match analysis and also compare your team with others based on current stats this season
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    document.getElementById('dpGenerate').onclick = async () => {
+      if (!dpState.picks.length) return log('No picks to generate');
+      if (typeof html2canvas === 'undefined') return log('ERROR: html2canvas not loaded — check your internet');
+
+      const previewEl = document.getElementById('dpPreview');
+      previewEl.innerHTML = '<div style="padding:16px;color:#8792A3;text-align:center;">Generating picture(s)…</div>';
+
+      const chunks = [];
+      for (let i = 0; i < dpState.picks.length; i += 20) {
+        chunks.push(dpState.picks.slice(i, i + 20));
+      }
+
+      const date = dpState.date;
+      const bookingCode = dpState.meta.booking_code || '';
+
+      for (let i = 0; i < chunks.length; i++) {
+        const html = renderPictureHTML(chunks[i], date, bookingCode, i + 1, chunks.length);
+        const container = document.createElement('div');
+        container.innerHTML = html;
+        document.body.appendChild(container);
+
+        try {
+          const canvas = await html2canvas(container.firstElementChild, {
+            backgroundColor: '#0B0E13',
+            scale: 2,
+            useCORS: true,
+            logging: false,
+          });
+
+          const dataUrl = canvas.toDataURL('image/png');
+
+          const card = document.createElement('div');
+          card.className = 'dp-preview-card';
+          card.innerHTML = `
+            <div class="dp-preview-label">Part ${i + 1} of ${chunks.length}</div>
+            <img src="${dataUrl}" alt="Part ${i + 1}" />
+            <button style="margin-top:10px;" data-download="${i + 1}">Download Part ${i + 1}</button>
+          `;
+          previewEl.appendChild(card);
+
+          card.querySelector('[data-download]').onclick = () => {
+            const a = document.createElement('a');
+            a.href = dataUrl;
+            a.download = `formline-picks-${date}-part${i + 1}.png`;
+            a.click();
+          };
+        } catch (err) {
+          log('Picture gen error: ' + err.message);
+        } finally {
+          document.body.removeChild(container);
+        }
+      }
+
+      log(`Generated ${chunks.length} picture(s)`);
     };
 
     // ── INIT ──

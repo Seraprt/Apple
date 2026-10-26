@@ -11,7 +11,7 @@ const accuracyRoutes = require('./routes/accuracy');
 const adminRoutes = require('./routes/admin');
 const rankingsRoutes = require('./routes/rankings');
 const dailyMessageRoutes = require('./routes/dailyMessage');
-
+const imageProxyRoutes = require('./routes/imageProxy');
 const app = express();
 
 // ───── CORS ─────
@@ -57,6 +57,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/daily-message', dailyMessageRoutes);
 app.use('/api/accuracy', accuracyRoutes);
 app.use('/api/rankings', rankingsRoutes);
+app.use('/api/img', imageProxyRoutes);
 
 // ───── Keep-alive (Render free tier) ─────
 const KEEP_ALIVE_INTERVAL = 4 * 60 * 1000;
