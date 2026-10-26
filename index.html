@@ -799,13 +799,14 @@
     }
 
     function renderLogoChip(logoUrl, teamName) {
+      const size = 44;
       if (logoUrl) {
         const proxied = proxyLogo(logoUrl);
         return `<img src="${proxied}" crossorigin="anonymous"
-          style="width:34px;height:34px;object-fit:contain;flex-shrink:0;" />`;
+          style="width:${size}px;height:${size}px;object-fit:contain;flex-shrink:0;" />`;
       }
       const initials = (teamName || '?').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
-      return `<div style="width:34px;height:34px;border-radius:50%;background:#232B37;color:#8792A3;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0;">${initials}</div>`;
+      return `<div style="width:${size}px;height:${size}px;border-radius:50%;background:#232B37;color:#8792A3;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;flex-shrink:0;">${initials}</div>`;
     }
 
     function renderPictureHTML(picks, date, bookingCode, partNum, totalParts) {
@@ -817,23 +818,23 @@
           ? new Date(p.match_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
           : '';
         return `
-          <div style="display:grid;grid-template-columns:620px 280px 140px;gap:16px;padding:10px 0;border-bottom:1px solid #1A2029;align-items:center;">
-            <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+          <div style="display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,0.85fr) minmax(0,0.55fr);gap:14px;padding:10px 0;border-bottom:1px solid #1A2029;align-items:center;">
+            <div style="display:flex;align-items:center;gap:12px;min-width:0;">
               ${renderLogoChip(p.home_logo, p.home_name)}
               ${renderLogoChip(p.away_logo, p.away_name)}
               <div style="min-width:0;flex:1;">
-                <div style="font-size:15px;font-weight:700;color:#E9EEF6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                <div style="font-size:24px;font-weight:800;color:#E9EEF6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.2;">
                   ${p.home_name} vs ${p.away_name}
                 </div>
-                <div style="font-size:11px;color:#5A6474;margin-top:2px;">
+                <div style="font-size:14px;color:#8792A3;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">
                   ${p.league || '—'}${timeStr ? ' • ' + timeStr : ''}
                 </div>
               </div>
             </div>
-            <div style="font-size:14px;font-weight:700;color:#C8F751;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+            <div style="font-size:22px;font-weight:800;color:#C8F751;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.2;">
               ${p.secondary_prediction || '—'}
             </div>
-            <div style="font-size:20px;font-weight:800;color:#E9EEF6;text-align:right;font-variant-numeric:tabular-nums;">
+            <div style="font-size:34px;font-weight:900;color:#E9EEF6;text-align:right;font-variant-numeric:tabular-nums;line-height:1;white-space:nowrap;">
               ${p.correct_score || '—'}
             </div>
           </div>
@@ -841,43 +842,43 @@
       }).join('');
 
       return `
-        <div style="width:1080px;background:#0B0E13;padding:36px 32px 32px;font-family:system-ui,-apple-system,sans-serif;color:#E9EEF6;">
-          <div style="text-align:center;margin-bottom:24px;padding-bottom:18px;border-bottom:2px solid #232B37;">
-            <div style="font-size:40px;font-weight:900;letter-spacing:-0.03em;color:#E9EEF6;line-height:1;">
+        <div style="box-sizing:border-box;width:1080px;background:#0B0E13;padding:28px 22px 24px;font-family:system-ui,-apple-system,sans-serif;color:#E9EEF6;">
+          <div style="text-align:center;margin-bottom:20px;padding-bottom:16px;border-bottom:3px solid #232B37;">
+            <div style="font-size:60px;font-weight:900;letter-spacing:-0.04em;color:#E9EEF6;line-height:1;">
               FORM<span style="color:#C8F751;">LINE</span>
             </div>
-            <div style="font-size:18px;color:#8792A3;margin-top:10px;letter-spacing:0.08em;text-transform:uppercase;font-weight:700;">
+            <div style="font-size:22px;color:#8792A3;margin-top:10px;letter-spacing:0.10em;text-transform:uppercase;font-weight:800;">
               Daily Predictions
             </div>
-            <div style="font-size:16px;color:#C8F751;margin-top:6px;font-weight:700;">
+            <div style="font-size:22px;color:#C8F751;margin-top:6px;font-weight:800;">
               ${dateLabel}
             </div>
-            ${totalParts > 1 ? `<div style="font-size:12px;color:#5A6474;margin-top:4px;">Part ${partNum} of ${totalParts}</div>` : ''}
+            ${totalParts > 1 ? `<div style="font-size:15px;color:#5A6474;margin-top:5px;font-weight:700;">Part ${partNum} of ${totalParts}</div>` : ''}
           </div>
 
-          <div style="display:grid;grid-template-columns:620px 280px 140px;gap:16px;padding:8px 0;border-bottom:1px solid #232B37;margin-bottom:6px;">
-            <div style="font-size:10.5px;color:#5A6474;font-weight:800;letter-spacing:0.10em;text-transform:uppercase;">Match</div>
-            <div style="font-size:10.5px;color:#5A6474;font-weight:800;letter-spacing:0.10em;text-transform:uppercase;">Secondary</div>
-            <div style="font-size:10.5px;color:#5A6474;font-weight:800;letter-spacing:0.10em;text-transform:uppercase;text-align:right;">Score</div>
+          <div style="display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,0.85fr) minmax(0,0.55fr);gap:14px;padding:8px 0;border-bottom:2px solid #232B37;margin-bottom:4px;">
+            <div style="font-size:14px;color:#8792A3;font-weight:800;letter-spacing:0.10em;text-transform:uppercase;">Match</div>
+            <div style="font-size:14px;color:#8792A3;font-weight:800;letter-spacing:0.10em;text-transform:uppercase;">Secondary</div>
+            <div style="font-size:14px;color:#8792A3;font-weight:800;letter-spacing:0.10em;text-transform:uppercase;text-align:right;">Score</div>
           </div>
 
           ${rowsHtml}
 
           ${bookingCode ? `
-            <div style="margin-top:22px;text-align:center;">
-              <div style="display:inline-block;padding:12px 24px;background:rgba(200,247,81,0.10);border:2px solid #C8F751;border-radius:14px;">
-                <div style="font-size:11px;color:#C8F751;font-weight:800;letter-spacing:0.10em;text-transform:uppercase;margin-bottom:4px;">
+            <div style="margin-top:20px;text-align:center;">
+              <div style="display:inline-block;padding:14px 28px;background:rgba(200,247,81,0.10);border:3px solid #C8F751;border-radius:16px;">
+                <div style="font-size:14px;color:#C8F751;font-weight:800;letter-spacing:0.10em;text-transform:uppercase;margin-bottom:6px;">
                   Football.com 2-Odds Booking Code
                 </div>
-                <div style="font-size:26px;color:#E9EEF6;font-weight:900;letter-spacing:0.10em;">
+                <div style="font-size:38px;color:#E9EEF6;font-weight:900;letter-spacing:0.14em;">
                   ${bookingCode}
                 </div>
               </div>
             </div>
           ` : ''}
 
-          <div style="margin-top:24px;padding-top:18px;border-top:2px solid #232B37;text-align:center;">
-            <div style="font-size:14px;color:#C8F751;font-weight:700;line-height:1.5;">
+          <div style="margin-top:20px;padding-top:16px;border-top:3px solid #232B37;text-align:center;">
+            <div style="font-size:19px;color:#C8F751;font-weight:800;line-height:1.5;">
               Visit formline.com.ng to get free match analysis and also compare your team with others based on current stats this season
             </div>
           </div>
@@ -909,7 +910,7 @@
         try {
           const canvas = await html2canvas(container.firstElementChild, {
             backgroundColor: '#0B0E13',
-            scale: 2,
+            scale: 1.5,
             useCORS: true,
             logging: false,
           });
@@ -919,7 +920,7 @@
           const card = document.createElement('div');
           card.className = 'dp-preview-card';
           card.innerHTML = `
-            <div class="dp-preview-label">Part ${i + 1} of ${chunks.length}</div>
+            <div class="dp-preview-label">Part ${i + 1} of ${chunks.length} — ${canvas.width}×${canvas.height}px</div>
             <img src="${dataUrl}" alt="Part ${i + 1}" />
             <button style="margin-top:10px;" data-download="${i + 1}">Download Part ${i + 1}</button>
           `;

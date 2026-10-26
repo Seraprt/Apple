@@ -117,4 +117,4 @@ async function getRankings(type, limit = 20, minMatches = 10) {
   };
 }
 
-module.exports = { getRankings, computeRankings, ppgToRating };
+module.exports = { getRankings, computeRankings, ppgToRating }; 
