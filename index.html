@@ -10,9 +10,12 @@
     body {
       background: #0B0E13; color: #E9EEF6;
       font-family: system-ui, -apple-system, sans-serif;
-      margin: 0; padding: 24px;
+      margin: 0; padding: 24px 24px 80px;
       max-width: 820px; margin: 0 auto;
+      transition: padding-bottom 0.25s;
     }
+    body.log-expanded { padding-bottom: 340px; }
+
     h1 { font-size: 22px; letter-spacing: -0.03em; margin-bottom: 4px; }
     h1 em { color: #C8F751; font-style: normal; }
     .sub { color: #5A6474; font-size: 12px; margin-bottom: 20px; }
@@ -44,14 +47,46 @@
     button.ghost { background: #161B24; color: #8792A3; border: 1px solid #232B37; }
     button:disabled { background: #232B37; color: #5A6474; cursor: not-allowed; }
     button.small { width: auto; padding: 6px 10px; font-size: 11px; margin-bottom: 0; }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding: 4px 0 8px;
+      margin-bottom: 4px;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab-btn {
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      background: #161B24;
+      color: #8792A3;
+      border: 1px solid #232B37;
+      font-family: inherit;
+      transition: 0.15s;
+      margin: 0;
+      width: auto;
+    }
+    .tab-btn.active {
+      background: #C8F751;
+      color: #0B0E13;
+      border-color: #C8F751;
+    }
+    .tab-btn:active { transform: scale(0.97); }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
     .stat { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
     .stat strong { color: #C8F751; font-weight: 700; }
-    .log {
-      background: #0B0E13; border: 1px solid #1A2029; border-radius: 8px;
-      padding: 12px; font-family: ui-monospace, SFMono-Regular, monospace;
-      font-size: 12px; color: #8792A3; max-height: 220px;
-      overflow-y: auto; white-space: pre-wrap;
-    }
     .badge {
       display: inline-block; padding: 2px 8px; border-radius: 6px;
       font-size: 11px; font-weight: 700; text-transform: uppercase;
@@ -63,6 +98,81 @@
     .badge.email { background: rgba(200,247,81,.16); color: #C8F751; }
     .badge.published { background: rgba(200,247,81,.16); color: #C8F751; }
     .badge.draft { background: rgba(90,100,116,.18); color: #8792A3; }
+
+    /* Log panel (fixed bottom) */
+    .log-panel {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #11151C;
+      border-top: 1px solid #232B37;
+      z-index: 100;
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+    }
+    .log-header {
+      padding: 12px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+      background: #11151C;
+    }
+    .log-header:hover { background: #161B24; }
+    .log-header-left {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      overflow: hidden;
+    }
+    .log-header-label {
+      font-weight: 800;
+      color: #C8F751;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .log-preview {
+      color: #8792A3;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+      min-width: 0;
+    }
+    .log-toggle {
+      color: #C8F751;
+      font-size: 14px;
+      transition: transform 0.25s;
+      flex-shrink: 0;
+    }
+    .log-panel.expanded .log-toggle { transform: rotate(180deg); }
+
+    .log-body {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.25s ease;
+      border-top: 1px solid #1A2029;
+    }
+    .log-panel.expanded .log-body { max-height: 300px; }
+
+    .log {
+      background: #0B0E13;
+      padding: 12px 20px;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 12px;
+      color: #8792A3;
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      margin: 0;
+    }
 
     /* Users stats */
     .users-grid {
@@ -196,149 +306,189 @@
     .dp-hint {
       font-size: 11px; color: #5A6474; margin: -4px 0 8px; line-height: 1.4;
     }
+
+    hr.divider {
+      border: 0;
+      border-top: 1px solid #232B37;
+      margin: 16px 0;
+    }
   </style>
 </head>
 <body>
   <h1>FORM<em>LINE</em> Admin</h1>
   <p class="sub">Ingestion · Warm cache · Users · Custom matches · Daily message · Daily picks · Status</p>
 
+  <!-- Admin key (always visible) -->
   <div class="card">
     <h3>Admin Key</h3>
     <input type="password" id="adminKey" placeholder="Enter admin key" />
   </div>
 
-  <!-- USERS -->
-  <div class="card">
-    <h3>Users</h3>
-    <div class="users-grid">
-      <div class="users-tile"><span class="num" id="uTotal">—</span><span class="lbl">Total</span></div>
-      <div class="users-tile google"><span class="num" id="uGoogle">—</span><span class="lbl">Google</span></div>
-      <div class="users-tile email"><span class="num" id="uEmail">—</span><span class="lbl">Email</span></div>
-    </div>
-    <div class="ratio-bar" id="ratioBar">
-      <div class="g" id="ratioG" style="width:0%"></div>
-      <div class="e" id="ratioE" style="width:0%"></div>
-      <div class="o" id="ratioO" style="width:0%"></div>
-    </div>
-    <div class="ratio-legend">
-      <span><b style="color:#4285F4">●</b> Google <b id="legendG">0%</b></span>
-      <span><b style="color:#C8F751">●</b> Email <b id="legendE">0%</b></span>
-      <span><b style="color:#5A6474">●</b> Other <b id="legendO">0%</b></span>
-    </div>
-    <h4>Recent signups</h4>
-    <div id="recentUsers"><div class="user-empty">Enter admin key to load users.</div></div>
-  </div>
-
-  <!-- STATUS -->
-  <div class="card">
-    <h3>System Status</h3>
-    <div class="stat"><span>Ingestion</span><span id="statIngest" class="badge idle">—</span></div>
-    <div class="stat"><span>Warm cache</span><span id="statWarm" class="badge idle">—</span></div>
-    <div class="stat"><span>Teams</span><strong id="statTeams">—</strong></div>
-    <div class="stat"><span>Matches</span><strong id="statMatches">—</strong></div>
-    <div class="stat"><span>Analyses cached</span><strong id="statAnalyses">—</strong></div>
-  </div>
-
-  <!-- ACTIONS -->
-  <div class="card">
-    <h3>Actions</h3>
-    <button id="btnIngest">Run Ingestion</button>
-    <button id="btnWarm">Warm Analysis Cache</button>
-    <button id="btnClear" class="danger">Clear Analysis Cache</button>
-    <button id="btnRefresh">Refresh Status &amp; Users</button>
-  </div>
-
-  <!-- DAILY MESSAGE -->
-  <div class="card">
-    <h3>Daily Message</h3>
-    <p style="font-size:12px;color:#5A6474;margin:0 0 10px;">
-      Shown on the Matches page. Only one message is active at a time — saving replaces the old one.
-    </p>
-    <input id="dmHeading" placeholder="Heading (e.g. Today's Value Picks)" />
-    <textarea id="dmBody" placeholder="Body — write your daily message here…" style="min-height:110px;"></textarea>
-    <button id="btnSaveDM">Save / Update Daily Message</button>
-    <button id="btnDeleteDM" class="danger">Delete Daily Message</button>
-    <div id="dmStatus" style="font-size:12px;color:#5A6474;margin-top:8px;">No message loaded.</div>
-  </div>
-
-  <!-- CUSTOM MATCHES -->
-  <div class="card">
-    <h3>Add Custom Match</h3>
-    <input id="cmHome" placeholder="Home team name" />
-    <input id="cmAway" placeholder="Away team name" />
-    <input id="cmLeague" placeholder="League (e.g. Nigerian Premier League)" />
-    <input id="cmCountry" placeholder="Country (optional)" />
-    <input id="cmDate" type="datetime-local" />
-    <input id="cmMarket" placeholder="Suggested market (e.g. Home win, Over 2.5)" />
-    <input id="cmScore" placeholder="Suggested score (optional, e.g. 2-1)" />
-    <textarea id="cmNotes" placeholder="Short note (optional)"></textarea>
-    <button id="btnAddCustom">Create Custom Match</button>
-  </div>
-
-  <div class="card">
-    <h3>Custom Matches (system)</h3>
-    <div id="customList" style="font-size: 12px; color: #5A6474;">Loading…</div>
+  <!-- Tab bar -->
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="status">Status</button>
+    <button class="tab-btn" data-tab="users">Users</button>
+    <button class="tab-btn" data-tab="message">Message</button>
+    <button class="tab-btn" data-tab="custom">Custom Matches</button>
+    <button class="tab-btn" data-tab="picks">Daily Picks</button>
   </div>
 
   <!-- ══════════════════════════════════════════ -->
-  <!-- DAILY PICKS BUILDER -->
+  <!-- TAB: STATUS -->
   <!-- ══════════════════════════════════════════ -->
-  <div class="card">
-    <h3>Daily Picks Builder</h3>
-    <p class="dp-hint">Build today's picture. Max 20 picks per picture — extra picks split into multiple downloads.</p>
-
-    <h4>Date</h4>
-    <input type="date" id="dpDate" />
-    <button id="dpLoad" class="ghost">Load Picks for Date</button>
-
-    <h4>Booking Code (football.com 2-odds)</h4>
-    <input id="dpBookingCode" placeholder="e.g. ABC123XYZ" />
-    <button id="dpSaveBooking" class="ghost">Save Booking Code</button>
-    <div id="dpPublishStatus" style="font-size:12px;color:#5A6474;margin-top:4px;"></div>
-
-    <hr style="border:0;border-top:1px solid #232B37;margin:16px 0;" />
-
-    <h4>Today's Picks (<span id="dpCount">0</span>)</h4>
-    <div id="dpPicksList">
-      <div class="user-empty">Load a date to see picks.</div>
+  <div class="tab-panel active" data-tab="status">
+    <div class="card">
+      <h3>System Status</h3>
+      <div class="stat"><span>Ingestion</span><span id="statIngest" class="badge idle">—</span></div>
+      <div class="stat"><span>Warm cache</span><span id="statWarm" class="badge idle">—</span></div>
+      <div class="stat"><span>Teams</span><strong id="statTeams">—</strong></div>
+      <div class="stat"><span>Matches</span><strong id="statMatches">—</strong></div>
+      <div class="stat"><span>Analyses cached</span><strong id="statAnalyses">—</strong></div>
     </div>
 
-    <hr style="border:0;border-top:1px solid #232B37;margin:16px 0;" />
-
-    <h4>Add from System</h4>
-    <input id="dpSearch" placeholder="Search team or league..." />
-    <button id="dpSearchBtn" class="ghost">Search</button>
-    <div id="dpSearchResults"></div>
-
-    <hr style="border:0;border-top:1px solid #232B37;margin:16px 0;" />
-
-    <h4>Add Custom Match (no logo)</h4>
-    <input id="dpCustomHome" placeholder="Home team name" />
-    <input id="dpCustomAway" placeholder="Away team name" />
-    <input id="dpCustomLeague" placeholder="League (optional)" />
-    <input id="dpCustomTime" type="datetime-local" />
-    <input id="dpCustomSecondary" placeholder="Secondary prediction (e.g. Over 2.5)" />
-    <input id="dpCustomScore" placeholder="Correct score (e.g. 2-1)" />
-    <button id="dpAddCustom">Add Custom Match</button>
-
-    <hr style="border:0;border-top:1px solid #232B37;margin:16px 0;" />
-
-    <h4>Generate &amp; Publish</h4>
-    <button id="dpGenerate">Generate Picture(s)</button>
-    <button id="dpPublish">Publish to Perfect Picks</button>
-    <button id="dpUnpublish" class="ghost">Unpublish</button>
-
-    <div id="dpPreview" class="dp-preview-grid"></div>
+    <div class="card">
+      <h3>Actions</h3>
+      <button id="btnIngest">Run Ingestion</button>
+      <button id="btnWarm">Warm Analysis Cache</button>
+      <button id="btnClear" class="danger">Clear Analysis Cache</button>
+      <button id="btnRefresh">Refresh Status &amp; Users</button>
+    </div>
   </div>
 
-  <!-- LOG -->
-  <div class="card">
-    <h3>Log</h3>
-    <div class="log" id="log">Ready. Paste your admin key and click Refresh.</div>
+  <!-- ══════════════════════════════════════════ -->
+  <!-- TAB: USERS -->
+  <!-- ══════════════════════════════════════════ -->
+  <div class="tab-panel" data-tab="users">
+    <div class="card">
+      <h3>Users</h3>
+      <div class="users-grid">
+        <div class="users-tile"><span class="num" id="uTotal">—</span><span class="lbl">Total</span></div>
+        <div class="users-tile google"><span class="num" id="uGoogle">—</span><span class="lbl">Google</span></div>
+        <div class="users-tile email"><span class="num" id="uEmail">—</span><span class="lbl">Email</span></div>
+      </div>
+      <div class="ratio-bar" id="ratioBar">
+        <div class="g" id="ratioG" style="width:0%"></div>
+        <div class="e" id="ratioE" style="width:0%"></div>
+        <div class="o" id="ratioO" style="width:0%"></div>
+      </div>
+      <div class="ratio-legend">
+        <span><b style="color:#4285F4">●</b> Google <b id="legendG">0%</b></span>
+        <span><b style="color:#C8F751">●</b> Email <b id="legendE">0%</b></span>
+        <span><b style="color:#5A6474">●</b> Other <b id="legendO">0%</b></span>
+      </div>
+      <h4>Recent signups</h4>
+      <div id="recentUsers"><div class="user-empty">Enter admin key to load users.</div></div>
+    </div>
   </div>
 
-  <!-- OFFSCREEN PRINT AREA (for html2canvas) -->
-  <div id="dpPrintArea" style="position:fixed;left:-10000px;top:0;"></div>
+  <!-- ══════════════════════════════════════════ -->
+  <!-- TAB: MESSAGE -->
+  <!-- ══════════════════════════════════════════ -->
+  <div class="tab-panel" data-tab="message">
+    <div class="card">
+      <h3>Daily Message</h3>
+      <p style="font-size:12px;color:#5A6474;margin:0 0 10px;">
+        Shown on the Matches page. Only one message is active at a time — saving replaces the old one.
+      </p>
+      <input id="dmHeading" placeholder="Heading (e.g. Today's Value Picks)" />
+      <textarea id="dmBody" placeholder="Body — write your daily message here…" style="min-height:110px;"></textarea>
+      <button id="btnSaveDM">Save / Update Daily Message</button>
+      <button id="btnDeleteDM" class="danger">Delete Daily Message</button>
+      <div id="dmStatus" style="font-size:12px;color:#5A6474;margin-top:8px;">No message loaded.</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════ -->
+  <!-- TAB: CUSTOM MATCHES -->
+  <!-- ══════════════════════════════════════════ -->
+  <div class="tab-panel" data-tab="custom">
+    <div class="card">
+      <h3>Add Custom Match</h3>
+      <input id="cmHome" placeholder="Home team name" />
+      <input id="cmAway" placeholder="Away team name" />
+      <input id="cmLeague" placeholder="League (e.g. Nigerian Premier League)" />
+      <input id="cmCountry" placeholder="Country (optional)" />
+      <input id="cmDate" type="datetime-local" />
+      <input id="cmMarket" placeholder="Suggested market (e.g. Home win, Over 2.5)" />
+      <input id="cmScore" placeholder="Suggested score (optional, e.g. 2-1)" />
+      <textarea id="cmNotes" placeholder="Short note (optional)"></textarea>
+      <button id="btnAddCustom">Create Custom Match</button>
+    </div>
+
+    <div class="card">
+      <h3>Custom Matches (system)</h3>
+      <div id="customList" style="font-size: 12px; color: #5A6474;">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════ -->
+  <!-- TAB: DAILY PICKS -->
+  <!-- ══════════════════════════════════════════ -->
+  <div class="tab-panel" data-tab="picks">
+    <div class="card">
+      <h3>Daily Picks Builder</h3>
+      <p class="dp-hint">Build today's picture. Max 20 picks per picture — extra picks split into multiple downloads.</p>
+
+      <h4>Date</h4>
+      <input type="date" id="dpDate" />
+      <button id="dpLoad" class="ghost">Load Picks for Date</button>
+
+      <h4>Booking Code (football.com 2-odds)</h4>
+      <input id="dpBookingCode" placeholder="e.g. ABC123XYZ" />
+      <button id="dpSaveBooking" class="ghost">Save Booking Code</button>
+      <div id="dpPublishStatus" style="font-size:12px;color:#5A6474;margin-top:4px;"></div>
+
+      <hr class="divider" />
+
+      <h4>Today's Picks (<span id="dpCount">0</span>)</h4>
+      <div id="dpPicksList">
+        <div class="user-empty">Load a date to see picks.</div>
+      </div>
+
+      <hr class="divider" />
+
+      <h4>Add from System</h4>
+      <input id="dpSearch" placeholder="Search team or league..." />
+      <button id="dpSearchBtn" class="ghost">Search</button>
+      <div id="dpSearchResults"></div>
+
+      <hr class="divider" />
+
+      <h4>Add Custom Match (no logo)</h4>
+      <input id="dpCustomHome" placeholder="Home team name" />
+      <input id="dpCustomAway" placeholder="Away team name" />
+      <input id="dpCustomLeague" placeholder="League (optional)" />
+      <input id="dpCustomTime" type="datetime-local" />
+      <input id="dpCustomSecondary" placeholder="Secondary prediction (e.g. Over 2.5)" />
+      <input id="dpCustomScore" placeholder="Correct score (e.g. 2-1)" />
+      <button id="dpAddCustom">Add Custom Match</button>
+
+      <hr class="divider" />
+
+      <h4>Generate &amp; Publish</h4>
+      <button id="dpGenerate">Generate Picture(s)</button>
+      <button id="dpPublish">Publish to Perfect Picks</button>
+      <button id="dpUnpublish" class="ghost">Unpublish</button>
+
+      <div id="dpPreview" class="dp-preview-grid"></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════ -->
+  <!-- LOG (fixed bottom, collapsible) -->
+  <!-- ══════════════════════════════════════════ -->
+  <div class="log-panel" id="logPanel">
+    <div class="log-header" onclick="toggleLogPanel()">
+      <div class="log-header-left">
+        <span class="log-header-label">Log</span>
+        <span class="log-preview" id="logPreview">Ready. Paste your admin key.</span>
+      </div>
+      <span class="log-toggle">▲</span>
+    </div>
+    <div class="log-body">
+      <div class="log" id="log">Ready. Paste your admin key and click Refresh.</div>
+    </div>
+  </div>
 
   <script>
     const API_BASE = 'https://apple-6r7q.onrender.com/api';
@@ -349,10 +499,38 @@
     function log(msg) {
       const time = new Date().toLocaleTimeString();
       logEl.textContent = `[${time}] ${msg}\n` + logEl.textContent;
+      const preview = document.getElementById('logPreview');
+      if (preview) preview.textContent = msg;
+    }
+    function toggleLogPanel() {
+      const panel = document.getElementById('logPanel');
+      panel.classList.toggle('expanded');
+      document.body.classList.toggle('log-expanded');
     }
     function getKey() {
       return document.getElementById('adminKey').value.trim();
     }
+
+    // ═══════════════════════════════════════════
+    // TABS
+    // ═══════════════════════════════════════════
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-panel').forEach((p) => {
+        p.classList.toggle('active', p.dataset.tab === tabId);
+      });
+      document.querySelectorAll('.tab-btn').forEach((b) => {
+        b.classList.toggle('active', b.dataset.tab === tabId);
+      });
+      try { localStorage.setItem('formlineAdminTab', tabId); } catch (_) {}
+    }
+    document.querySelectorAll('.tab-btn').forEach((btn) => {
+      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
+    // Restore last tab
+    try {
+      const last = localStorage.getItem('formlineAdminTab');
+      if (last) switchTab(last);
+    } catch (_) {}
 
     async function call(path, method = 'GET', body) {
       const key = getKey();
