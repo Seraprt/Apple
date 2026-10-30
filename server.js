@@ -6,6 +6,7 @@ const connectDB = require('./config/db');
 const authRoutes = require('./routes/auth');
 const teamRoutes = require('./routes/teams');
 const matchRoutes = require('./routes/matches');
+const marketsRoutes = require('./routes/markets');
 const predictionRoutes = require('./routes/predictions');
 const accuracyRoutes = require('./routes/accuracy');
 const adminRoutes = require('./routes/admin');
@@ -57,6 +58,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/daily-message', dailyMessageRoutes);
 app.use('/api/accuracy', accuracyRoutes);
 app.use('/api/rankings', rankingsRoutes);
+app.use('/api/markets', marketsRoutes);
 app.use('/api/img', imageProxyRoutes);
 
 // ───── Keep-alive (Render free tier) ─────
